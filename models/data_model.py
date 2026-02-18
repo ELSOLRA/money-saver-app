@@ -139,3 +139,10 @@ class DataModel:
         self.categories.append(category_name)
         self.save_data()
         return True
+    
+    def delete_category(self, category: str) -> None:
+        """Delete a category and all its transactions."""
+        self.transactions = [t for t in self.transactions if t.category != category]
+        if category in self.categories:
+            self.categories.remove(category)
+        self.save_data()

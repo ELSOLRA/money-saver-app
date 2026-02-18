@@ -249,6 +249,18 @@ class MainView:
             command=lambda c=category_name: self._on_clear_category_click(c)
         )
         clear_cat_btn.pack(fill='x', pady=PADDING['medium'])
+        
+        delete_cat_btn = tk.Button(
+            left_panel,
+            text=f"Delete {category_name}",
+            font=FONTS['body'],
+            bg=COLORS['spend'],
+            fg='white',
+            relief='flat',
+            cursor='hand2',
+            command=lambda c=category_name: self._on_delete_category_click(c)
+        )
+        delete_cat_btn.pack(fill='x', pady=(0, PADDING['medium']))
 
         # Right panel - transaction list
         right_panel = ttk.Frame(tab_frame)
@@ -302,6 +314,14 @@ class MainView:
             if self.on_clear_category:
                 self.on_clear_category(category)
                 
+    def _on_delete_category_click(self, category: str):
+        if messagebox.askyesno(
+            "Confirm Delete",
+            f"Delete '{category}' and all its transactions?\nThis cannot be undone."
+        ):
+            if self.on_delete_category:
+                self.on_delete_category(category)
+                
     def _on_export_click(self):
         if self.on_export_data:
             self.on_export_data()
@@ -348,3 +368,14 @@ class MainView:
         if category_name in self.category_tabs:
             tab_frame = self.category_tabs[category_name]['frame']
             self.notebook.select(tab_frame)
+            
+    def remove_category_tab(self, category_name: str):
+        """Remove a category tab from the notebook."""
+        if category_name not in self.category_tabs:
+            return
+        tab_frame = self.category_tabs[category_name]['frame']
+        self.notebook.forget(tab_frame)
+        del self.category_tabs[category_name]
+        # Fix + tab index after removal
+        if hasattr(self, 'add_tab_index'):
+            self.add_tab_index -= 1

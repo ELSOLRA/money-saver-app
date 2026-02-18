@@ -27,6 +27,7 @@ class MainController:
         self.view.on_clear_category = self.clear_category
         self.view.on_create_category = self.create_category
         self.view.on_export_data = self.export_data
+        self.view.on_delete_category = self.delete_category
 
     def _initialize_view(self):
         """Initialize the view with existing data."""
@@ -129,6 +130,15 @@ class MainController:
                 output_path=path
             )
             self.view.show_message("Success", f"Exported to:\n{os.path.basename(path)}")
+    
+    def delete_category(self, category: str):
+        self.model.delete_category(category)
+        self.view.remove_category_tab(category)
+        self._update_summary()
+        self.view.show_message("Success", f"'{category}' has been deleted.")
+    
     def run(self):
         """Start the application main loop."""
         self.root.mainloop()
+        
+        
