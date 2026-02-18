@@ -26,6 +26,7 @@ class MainController:
         self.view.on_clear_data = self.clear_data
         self.view.on_clear_category = self.clear_category
         self.view.on_create_category = self.create_category
+        self.view.on_export_data = self.export_data
 
     def _initialize_view(self):
         """Initialize the view with existing data."""
@@ -108,7 +109,26 @@ class MainController:
         else:
             self.view.show_message("Error", f"Category '{category_name}' already exists.", "error")
             return False
+        
+    def export_data(self):
+        from utils.helpers import export_to_excel
+        from tkinter import filedialog
+        import os
 
+        path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile="budget_export.xlsx"
+        )
+        if path:
+            export_to_excel(
+                transactions=self.model.transactions,
+                categories=self.model.categories,                        
+                get_category_balance=self.model.get_category_balance,    
+                get_totals=None,                                         
+                output_path=path
+            )
+            self.view.show_message("Success", f"Exported to:\n{os.path.basename(path)}")
     def run(self):
         """Start the application main loop."""
         self.root.mainloop()

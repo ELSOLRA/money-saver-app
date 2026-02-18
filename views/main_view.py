@@ -113,6 +113,18 @@ class MainView:
             command=self._on_clear_click
         )
         clear_btn.pack(side='right')
+        
+        export_btn = tk.Button(
+            cards_frame,
+            text="📊 Export to Excel",
+            font=FONTS['body'],
+            bg=COLORS['add'],
+            fg='white',
+            relief='flat',
+            cursor='hand2',
+            command=self._on_export_click
+        )
+        export_btn.pack(side='right', padx=(0, PADDING['small']))
 
     def _create_notebook(self, parent):
         """Create the tabbed notebook for categories."""
@@ -289,6 +301,10 @@ class MainView:
         ):
             if self.on_clear_category:
                 self.on_clear_category(category)
+                
+    def _on_export_click(self):
+        if self.on_export_data:
+            self.on_export_data()
 
     def update_summary(self, total: float, added: float, spent: float):
         """Update the summary cards."""
