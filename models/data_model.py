@@ -1,5 +1,6 @@
 
 import json
+import base64
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -35,32 +36,39 @@ class DataModel:
         self._load_data()
 
     def _load_data(self) -> None:
-        """Load data from JSON file if it exists."""
+        """Load data from Base64-encoded JSON file if it exists."""
         if self.data_file.exists():
             try:
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.transactions = [
-                        Transaction.from_dict(t) for t in data.get('transactions', [])
-                    ]
-                    # Load saved categories and merge with defaults
-                    saved_categories = data.get('categories', [])
-                    for cat in saved_categories:
-                        if cat not in self.categories:
-                            self.categories.append(cat)
+                raw = self.data_file.read_bytes()
+                try:
+                    decoded = base64.b64decode(raw)
+                    json_str = decoded.decode('utf-8')
+                except Exception:
+                    # Fallback: file is still plain JSON 
+                    json_str = raw.decode('utf-8')
+                data = json.loads(json_str)
+                self.transactions = [
+                    Transaction.from_dict(t) for t in data.get('transactions', [])
+                ]
+                # Load saved categories and merge with defaults
+                saved_categories = data.get('categories', [])
+                for cat in saved_categories:
+                    if cat not in self.categories:
+                        self.categories.append(cat)
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Error loading data: {e}. Starting with empty data.")
                 self.transactions = []
 
     def save_data(self) -> None:
-        """Save all data to JSON file."""
+        """Save all data to JSON file encoded as Base64."""
         data = {
             'transactions': [t.to_dict() for t in self.transactions],
             'categories': self.categories,
             'last_updated': datetime.now().isoformat()
         }
-        with open(self.data_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        json_str = json.dumps(data, indent=2, ensure_ascii=False)
+        encoded = base64.b64encode(json_str.encode('utf-8'))
+        self.data_file.write_bytes(encoded)
 
     def add_transaction(
         self,
