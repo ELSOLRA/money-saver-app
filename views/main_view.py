@@ -35,6 +35,13 @@ class MainView:
         self.root.geometry(WINDOW_SIZE)
         self.root.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.root.configure(bg=COLORS['background'])
+        
+        self.root.update_idletasks()
+        w = self.root.winfo_width()
+        h = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (w // 2)
+        y = (self.root.winfo_screenheight() // 2) - (h // 2)
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     def _setup_styles(self):
         """Configure ttk styles."""
@@ -240,7 +247,7 @@ class MainView:
         # Clear category button
         clear_cat_btn = tk.Button(
             left_panel,
-            text=f"🗑️ Clear {category_name}",
+            text=f"Clear {category_name}",
             font=FONTS['body'],
             bg=COLORS['warning'],
             fg='white',
