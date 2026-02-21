@@ -4,9 +4,21 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
 
-def format_currency(amount: float, currency_symbol: str = '$') -> str:
-    """Format a number as currency string."""
-    return f"{currency_symbol}{amount:,.2f}"
+_currency_state = {'symbol': '€', 'suffix': False}
+
+
+def set_currency_state(symbol: str, suffix: bool) -> None:
+    """Update the active currency used by format_currency."""
+    _currency_state['symbol'] = symbol
+    _currency_state['suffix'] = suffix
+
+
+def format_currency(amount: float) -> str:
+    """Format a number as currency string using the active currency."""
+    sym = _currency_state['symbol']
+    if _currency_state['suffix']:
+        return f"{amount:,.2f} {sym}"
+    return f"{sym}{amount:,.2f}"
 
 
 def parse_amount(value: str) -> Optional[float]:
@@ -15,8 +27,8 @@ def parse_amount(value: str) -> Optional[float]:
     Returns None if parsing fails.
     """
     try:
-        # Remove common currency symbols and whitespace
-        cleaned = value.strip().replace('$', '').replace(',', '').replace(' ', '')
+        # Removes common currency symbols and whitespace
+        cleaned = value.strip().replace('$', '').replace('€', '').replace('kr', '').replace(',', '').replace(' ', '')
         if not cleaned:
             return None
         amount = float(cleaned)
@@ -39,7 +51,8 @@ def export_to_excel(transactions, categories, get_category_balance, get_totals, 
     ws = wb.active
     ws.title = "All Transactions"
 
-    headers = ["#", "Date", "Time", "Category", "Action", "Amount ($)", "Note"]
+    cur_sym = _currency_state['symbol']
+    headers = ["#", "Date", "Time", "Category", "Action", f"Amount ({cur_sym})", "Note"]
     header_fill = PatternFill("solid", start_color="2C3E50")
     header_font = Font(bold=True, color="FFFFFF", name="Segoe UI")
 
@@ -73,9 +86,9 @@ def export_to_excel(transactions, categories, get_category_balance, get_totals, 
 
     # Category balances table
     ws_summary["A3"] = "Category"
-    ws_summary["B3"] = "Added ($)"
-    ws_summary["C3"] = "Spent ($)"
-    ws_summary["D3"] = "Balance ($)"
+    ws_summary["B3"] = f"Added ({cur_sym})"
+    ws_summary["C3"] = f"Spent ({cur_sym})"
+    ws_summary["D3"] = f"Balance ({cur_sym})"
     for col in ["A3", "B3", "C3", "D3"]:
         ws_summary[col].font = Font(bold=True, color="FFFFFF", name="Segoe UI")
         ws_summary[col].fill = PatternFill("solid", start_color="2C3E50")
@@ -108,7 +121,7 @@ def export_to_excel(transactions, categories, get_category_balance, get_totals, 
     from datetime import datetime
     for cat in categories:
         ws_cat = wb.create_sheet(title=cat[:31])
-        ws_cat.append(["Date", "Time", "Action", "Amount ($)", "Note"])
+        ws_cat.append(["Date", "Time", "Action", f"Amount ({cur_sym})", "Note"])
         for cell in ws_cat[1]:
             cell.font = Font(bold=True, name="Segoe UI")
             cell.fill = PatternFill("solid", start_color="2C3E50")

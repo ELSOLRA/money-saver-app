@@ -28,6 +28,7 @@ class MainView:
         self.on_clear_data: Optional[Callable[[], None]] = None
         self.on_clear_category: Optional[Callable[[str], None]] = None
         self.on_create_category: Optional[Callable[[str], bool]] = None
+        self.on_currency_change: Optional[Callable[[str], None]] = None
 
     def _setup_window(self):
         """Configure the main window."""
@@ -69,13 +70,42 @@ class MainView:
         header_frame = ttk.Frame(parent)
         header_frame.pack(fill='x', pady=(0, PADDING['large']))
 
-        # Title
+        # Title row: title on left, currency selector on right
+        title_row = ttk.Frame(header_frame)
+        title_row.pack(fill='x')
+
         title_label = ttk.Label(
-            header_frame,
+            title_row,
             text="💰 Budget Saver",
             font=FONTS['title']
         )
-        title_label.pack(anchor='w')
+        title_label.pack(side='left')
+
+        # Currency radio buttons
+        currency_frame = ttk.Frame(title_row)
+        currency_frame.pack(side='right')
+
+        ttk.Label(
+            currency_frame,
+            text="Currency:",
+            font=FONTS['body']
+        ).pack(side='left', padx=(0, PADDING['small']))
+
+        self.currency_var = tk.StringVar(value='EUR')
+        for code in ['EUR', 'SEK', 'USD']:
+            rb = tk.Radiobutton(
+                currency_frame,
+                text=code,
+                variable=self.currency_var,
+                value=code,
+                font=FONTS['button'],
+                bg=COLORS['background'],
+                activebackground=COLORS['background'],
+                selectcolor=COLORS['background'],
+                cursor='hand2',
+                command=self._on_currency_change
+            )
+            rb.pack(side='left', padx=PADDING['small'])
 
         # Summary cards
         cards_frame = ttk.Frame(header_frame)
@@ -332,6 +362,21 @@ class MainView:
     def _on_export_click(self):
         if self.on_export_data:
             self.on_export_data()
+
+    def _on_currency_change(self):
+        """Handle currency radio button change."""
+        if self.on_currency_change:
+            self.on_currency_change(self.currency_var.get())
+
+    def set_currency(self, code: str):
+        """Set the active currency radio button without triggering the callback."""
+        self.currency_var.set(code)
+
+    def refresh_summary_currency(self):
+        """Re-render summary cards with the current currency symbol."""
+        self.total_card.refresh_display()
+        self.added_card.refresh_display()
+        self.spent_card.refresh_display()
 
     def update_summary(self, total: float, added: float, spent: float):
         """Update the summary cards."""

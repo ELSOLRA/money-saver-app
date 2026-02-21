@@ -188,6 +188,10 @@ class SummaryCard(ttk.Frame):
         self._value = new_value
         self.value_label.config(text=format_currency(new_value))
 
+    def refresh_display(self):
+        """Re-render the value label using the current currency symbol."""
+        self.value_label.config(text=format_currency(self._value))
+
 
 class TransactionList(ttk.Frame):
     """Scrollable list of transactions."""

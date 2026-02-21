@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
+from utils.config import DEFAULT_CURRENCY
 
 
 @dataclass
@@ -33,6 +34,7 @@ class DataModel:
         self.data_file = Path(data_file)
         self.transactions: List[Transaction] = []
         self.categories = categories or []
+        self.currency: str = DEFAULT_CURRENCY
         self._load_data()
 
     def _load_data(self) -> None:
@@ -55,6 +57,7 @@ class DataModel:
                 for cat in saved_categories:
                     if cat not in self.categories:
                         self.categories.append(cat)
+                self.currency = data.get('currency', DEFAULT_CURRENCY)
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Error loading data: {e}. Starting with empty data.")
                 self.transactions = []
@@ -64,6 +67,7 @@ class DataModel:
         data = {
             'transactions': [t.to_dict() for t in self.transactions],
             'categories': self.categories,
+            'currency': self.currency,
             'last_updated': datetime.now().isoformat()
         }
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -153,4 +157,9 @@ class DataModel:
         self.transactions = [t for t in self.transactions if t.category != category]
         if category in self.categories:
             self.categories.remove(category)
+        self.save_data()
+
+    def set_currency(self, currency_code: str) -> None:
+        """Set the active currency and persist it."""
+        self.currency = currency_code
         self.save_data()

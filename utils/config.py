@@ -32,6 +32,14 @@ WINDOW_MIN_HEIGHT = 580
 # Predefined amount buttons
 PRESET_AMOUNTS = [1000, 2000, 3000, 5000]
 
+# Supported currencies
+CURRENCIES = {
+    'EUR': {'symbol': '€', 'suffix': False},
+    'SEK': {'symbol': 'kr', 'suffix': True},
+    'USD': {'symbol': '$', 'suffix': False},
+}
+DEFAULT_CURRENCY = 'EUR'
+
 # Budget categories (single list now)
 BUDGET_CATEGORIES = ['Transport', 'Travel', 'Entertainment', 'Investment', 'Savings', 'Others']
 

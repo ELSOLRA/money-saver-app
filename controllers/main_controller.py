@@ -3,7 +3,8 @@ import tkinter as tk
 
 from models import DataModel
 from views import MainView
-from utils.config import DATA_FILE, BUDGET_CATEGORIES
+from utils.config import DATA_FILE, BUDGET_CATEGORIES, CURRENCIES
+from utils.helpers import set_currency_state
 
 
 class MainController:
@@ -14,8 +15,9 @@ class MainController:
     def __init__(self):
         self.root = tk.Tk()
         self.model = DataModel(DATA_FILE, BUDGET_CATEGORIES)
+        self._apply_currency_state(self.model.currency)
         self.view = MainView(self.root)
-        
+
         self._setup_callbacks()
         self._initialize_view()
 
@@ -28,9 +30,13 @@ class MainController:
         self.view.on_create_category = self.create_category
         self.view.on_export_data = self.export_data
         self.view.on_delete_category = self.delete_category
+        self.view.on_currency_change = self.change_currency
 
     def _initialize_view(self):
         """Initialize the view with existing data."""
+        
+        self.view.set_currency(self.model.currency)
+
         # Add category tabs
         for category in self.model.categories:
             transactions = self.model.get_transactions_by_category(category)
@@ -136,7 +142,22 @@ class MainController:
         self.view.remove_category_tab(category)
         self._update_summary()
         self.view.show_message("Success", f"'{category}' has been deleted.")
-    
+
+    def _apply_currency_state(self, currency_code: str):
+        """Push the currency symbol into the helpers module state."""
+        cur = CURRENCIES.get(currency_code, CURRENCIES['EUR'])
+        set_currency_state(cur['symbol'], cur['suffix'])
+
+    def change_currency(self, currency_code: str):
+        """Handle currency selection change — update model, state, and all displayed amounts."""
+        self._apply_currency_state(currency_code)
+        self.model.set_currency(currency_code)
+        self.view.refresh_summary_currency()
+        self._update_all_category_balances()
+        for category in self.model.categories:
+            transactions = self.model.get_transactions_by_category(category)
+            self.view.refresh_all_transactions(category, transactions)
+
     def run(self):
         """Start the application main loop."""
         self.root.mainloop()
