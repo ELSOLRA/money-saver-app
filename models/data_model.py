@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
-from utils.config import DEFAULT_CURRENCY
+from utils.config import DEFAULT_CURRENCY, EXCHANGE_RATES as _DEFAULT_RATES
 
 
 @dataclass
@@ -16,6 +16,8 @@ class Transaction:
     category: str
     timestamp: str
     note: Optional[str] = None
+    original_currency: Optional[str] = None   
+    original_amount: Optional[float] = None   #
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -35,6 +37,7 @@ class DataModel:
         self.transactions: List[Transaction] = []
         self.categories = categories or []
         self.currency: str = DEFAULT_CURRENCY
+        self.exchange_rates: dict = dict(_DEFAULT_RATES)
         self._load_data()
 
     def _load_data(self) -> None:
@@ -58,6 +61,7 @@ class DataModel:
                     if cat not in self.categories:
                         self.categories.append(cat)
                 self.currency = data.get('currency', DEFAULT_CURRENCY)
+                self.exchange_rates = data.get('exchange_rates', dict(_DEFAULT_RATES))
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Error loading data: {e}. Starting with empty data.")
                 self.transactions = []
@@ -68,6 +72,7 @@ class DataModel:
             'transactions': [t.to_dict() for t in self.transactions],
             'categories': self.categories,
             'currency': self.currency,
+            'exchange_rates': self.exchange_rates,
             'last_updated': datetime.now().isoformat()
         }
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -79,7 +84,9 @@ class DataModel:
         amount: float,
         action: str,
         category: str,
-        note: Optional[str] = None
+        note: Optional[str] = None,
+        original_currency: Optional[str] = None,
+        original_amount: Optional[float] = None,
     ) -> Transaction:
         """Add a new transaction and save to file."""
         transaction = Transaction(
@@ -87,19 +94,29 @@ class DataModel:
             action=action,
             category=category,
             timestamp=datetime.now().isoformat(),
-            note=note
+            note=note,
+            original_currency=original_currency,
+            original_amount=original_amount,
         )
         self.transactions.append(transaction)
         self.save_data()
         return transaction
 
-    def add_to_budget(self, amount: float, category: str) -> Transaction:
+    def add_to_budget(self, amount: float, category: str,
+                      original_currency: Optional[str] = None,
+                      original_amount: Optional[float] = None) -> Transaction:
         """Add money to a category budget."""
-        return self.add_transaction(amount, 'add', category)
+        return self.add_transaction(amount, 'add', category,
+                                    original_currency=original_currency,
+                                    original_amount=original_amount)
 
-    def spend_from_budget(self, amount: float, category: str) -> Transaction:
+    def spend_from_budget(self, amount: float, category: str,
+                          original_currency: Optional[str] = None,
+                          original_amount: Optional[float] = None) -> Transaction:
         """Spend money from a category budget."""
-        return self.add_transaction(amount, 'spend', category)
+        return self.add_transaction(amount, 'spend', category,
+                                    original_currency=original_currency,
+                                    original_amount=original_amount)
 
     def get_category_balance(self, category: str) -> float:
         """Get current balance for a specific category."""
@@ -108,7 +125,7 @@ class DataModel:
             if t.category == category:
                 if t.action == 'add':
                     total += t.amount
-                else:  # spend
+                else:  
                     total -= t.amount
         return total
 
@@ -118,7 +135,7 @@ class DataModel:
         for t in self.transactions:
             if t.action == 'add':
                 total += t.amount
-            else:  # spend
+            else:  
                 total -= t.amount
         return total
 
@@ -157,6 +174,40 @@ class DataModel:
         self.transactions = [t for t in self.transactions if t.category != category]
         if category in self.categories:
             self.categories.remove(category)
+        self.save_data()
+
+    def get_foreign_currency_totals(self) -> Dict[str, Dict[str, float]]:
+        """Get added/spent totals for each non-main currency used as input."""
+        totals: Dict[str, Dict[str, float]] = {}
+        for t in self.transactions:
+            if t.original_currency and t.original_amount is not None:
+                curr = t.original_currency
+                if curr not in totals:
+                    totals[curr] = {'added': 0.0, 'spent': 0.0}
+                if t.action == 'add':
+                    totals[curr]['added'] += t.original_amount
+                else:
+                    totals[curr]['spent'] += t.original_amount
+        return totals
+
+    def convert_all_amounts(self, from_code: str, to_code: str) -> None:
+        """Re-convert every stored amount when the main currency changes."""
+        from utils.helpers import convert_currency
+        for t in self.transactions:
+            t.amount = convert_currency(t.amount, from_code, to_code)
+        self.save_data()
+
+    def recalculate_foreign_amounts(self) -> None:
+        """Recompute main-currency amounts for foreign-input transactions using active rates."""
+        from utils.helpers import convert_currency
+        for t in self.transactions:
+            if t.original_currency and t.original_amount is not None:
+                t.amount = convert_currency(t.original_amount, t.original_currency, self.currency)
+        self.save_data()
+
+    def set_exchange_rates(self, rates: dict) -> None:
+        """Persist custom exchange rates."""
+        self.exchange_rates = dict(rates)
         self.save_data()
 
     def set_currency(self, currency_code: str) -> None:

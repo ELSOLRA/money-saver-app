@@ -1,6 +1,8 @@
 
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
+from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from utils.config import (
@@ -23,12 +25,13 @@ class MainView:
         self._create_widgets()
         
         # Callbacks to be set by controller
-        self.on_add_budget: Optional[Callable[[float, str], None]] = None
-        self.on_spend_budget: Optional[Callable[[float, str], None]] = None
+        self.on_add_budget: Optional[Callable[[float, str, str], None]] = None  
+        self.on_spend_budget: Optional[Callable[[float, str, str], None]] = None 
         self.on_clear_data: Optional[Callable[[], None]] = None
         self.on_clear_category: Optional[Callable[[str], None]] = None
         self.on_create_category: Optional[Callable[[str], bool]] = None
         self.on_currency_change: Optional[Callable[[str], None]] = None
+        self.on_edit_rates: Optional[Callable[[], None]] = None
 
     def _setup_window(self):
         """Configure the main window."""
@@ -36,6 +39,18 @@ class MainView:
         self.root.geometry(WINDOW_SIZE)
         self.root.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.root.configure(bg=COLORS['background'])
+
+        # Set window icon (dev: project root, packaged: PyInstaller extraction dir)
+        if getattr(sys, 'frozen', False):
+            base = Path(sys._MEIPASS)
+        else:
+            base = Path(__file__).parent.parent
+        icon_path = base / 'assets' / 'budget.ico'
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(str(icon_path))
+            except Exception:
+                pass
         
         self.root.update_idletasks()
         w = self.root.winfo_width()
@@ -107,6 +122,20 @@ class MainView:
             )
             rb.pack(side='left', padx=PADDING['small'])
 
+        rates_btn = tk.Button(
+            currency_frame,
+            text="⚙ Rates",
+            font=FONTS['body'],
+            bg=COLORS['text_secondary'],
+            fg='white',
+            activebackground=COLORS['text_primary'],
+            activeforeground='white',
+            relief='flat',
+            cursor='hand2',
+            command=self._on_edit_rates_click,
+        )
+        rates_btn.pack(side='left', padx=(PADDING['medium'], 0))
+
         # Summary cards
         cards_frame = ttk.Frame(header_frame)
         cards_frame.pack(fill='x', pady=PADDING['medium'])
@@ -137,6 +166,10 @@ class MainView:
             color=COLORS['spend']
         )
         self.spent_card.pack(side='left', padx=PADDING['large'])
+
+        # Foreign currency tracker row (shown when foreign-currency transactions exist)
+        self.foreign_currency_frame = ttk.Frame(header_frame)
+        self.foreign_currency_frame.pack(fill='x', pady=(0, PADDING['small']))
 
         # Clear button
         clear_btn = tk.Button(
@@ -251,8 +284,9 @@ class MainView:
         # Budget buttons (Add + Spend)
         button_panel = BudgetButtonPanel(
             left_panel,
-            on_add_click=lambda amount: self._on_add_click(amount, category_name),
-            on_spend_click=lambda amount: self._on_spend_click(amount, category_name)
+            on_add_click=lambda amount, currency: self._on_add_click(amount, category_name, currency),
+            on_spend_click=lambda amount, currency: self._on_spend_click(amount, category_name, currency),
+            initial_currency=self.currency_var.get(),
         )
         button_panel.pack(fill='x')
 
@@ -323,15 +357,15 @@ class MainView:
             'transaction_list': transaction_list
         }
 
-    def _on_add_click(self, amount: float, category: str):
+    def _on_add_click(self, amount: float, category: str, currency: str):
         """Handle add button click."""
         if self.on_add_budget:
-            self.on_add_budget(amount, category)
+            self.on_add_budget(amount, category, currency)
 
-    def _on_spend_click(self, amount: float, category: str):
+    def _on_spend_click(self, amount: float, category: str, currency: str):
         """Handle spend button click."""
         if self.on_spend_budget:
-            self.on_spend_budget(amount, category)
+            self.on_spend_budget(amount, category, currency)
 
     def _on_clear_click(self):
         """Handle clear all data button click."""
@@ -368,6 +402,92 @@ class MainView:
         if self.on_currency_change:
             self.on_currency_change(self.currency_var.get())
 
+    def _on_edit_rates_click(self):
+        """Handle Rates button click."""
+        if self.on_edit_rates:
+            self.on_edit_rates()
+
+    def show_rates_dialog(self, current_rates: dict, default_rates: dict, on_save):
+        """Modal dialog for editing exchange rates."""
+        from utils.config import CURRENCIES
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Exchange Rates")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        dialog.update_idletasks()
+        w, h = 380, 60 + len([c for c in default_rates if c != 'EUR']) * 50 + 70
+        x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        frame = ttk.Frame(dialog, padding=PADDING['large'])
+        frame.pack(fill='both', expand=True)
+
+        ttk.Label(
+            frame, text="Exchange Rates  (1 EUR = X)",
+            font=FONTS['heading'],
+        ).pack(anchor='w', pady=(0, PADDING['medium']))
+
+        entries = {}
+        for code in default_rates:
+            if code == 'EUR':
+                continue
+            sym = CURRENCIES[code]['symbol']
+            default_val = default_rates[code]
+            row = ttk.Frame(frame)
+            row.pack(fill='x', pady=(0, PADDING['small']))
+            ttk.Label(row, text="1 EUR =", font=FONTS['body']).pack(side='left')
+            entry = ttk.Entry(row, width=10, font=FONTS['body'])
+            entry.insert(0, str(current_rates.get(code, default_val)))
+            entry.pack(side='left', padx=PADDING['small'])
+            ttk.Label(
+                row,
+                text=f"{sym}    (default: {default_val})",
+                font=FONTS['body'],
+                foreground=COLORS['text_secondary'],
+            ).pack(side='left')
+            entries[code] = entry
+
+        def _save():
+            new_rates = {'EUR': 1.0}
+            for code, entry in entries.items():
+                try:
+                    rate = float(entry.get().strip().replace(',', '.'))
+                    if rate <= 0:
+                        raise ValueError
+                    new_rates[code] = rate
+                except ValueError:
+                    self.show_message("Error", f"Invalid rate for {code}. Enter a positive number.", "error")
+                    return
+            on_save(new_rates)
+            dialog.destroy()
+
+        def _reset():
+            for code, entry in entries.items():
+                entry.delete(0, tk.END)
+                entry.insert(0, str(default_rates[code]))
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill='x', pady=(PADDING['medium'], 0))
+
+        tk.Button(
+            btn_row, text="Reset to Default", font=FONTS['body'],
+            bg=COLORS['warning'], fg='white', relief='flat', cursor='hand2',
+            command=_reset,
+        ).pack(side='left')
+        tk.Button(
+            btn_row, text="Cancel", font=FONTS['body'],
+            bg=COLORS['text_secondary'], fg='white', relief='flat', cursor='hand2',
+            command=dialog.destroy,
+        ).pack(side='right', padx=(PADDING['small'], 0))
+        tk.Button(
+            btn_row, text="Save", font=FONTS['button'],
+            bg=COLORS['add'], fg='white', relief='flat', cursor='hand2',
+            command=_save,
+        ).pack(side='right')
+
     def set_currency(self, code: str):
         """Set the active currency radio button without triggering the callback."""
         self.currency_var.set(code)
@@ -383,6 +503,34 @@ class MainView:
         self.total_card.update_value(total)
         self.added_card.update_value(added)
         self.spent_card.update_value(spent)
+
+    def update_foreign_currency_display(self, totals: dict):
+        """Rebuild the foreign currency tracker row below the summary cards."""
+        from utils.helpers import format_currency_for_code
+        for widget in self.foreign_currency_frame.winfo_children():
+            widget.destroy()
+
+        if not totals:
+            return
+
+        ttk.Label(
+            self.foreign_currency_frame,
+            text="Foreign Currency Activity:",
+            font=FONTS['body'],
+            foreground=COLORS['text_secondary'],
+        ).pack(side='left', padx=(0, PADDING['medium']))
+
+        for code, data in totals.items():
+            net = data['added'] - data['spent']
+            net_str = format_currency_for_code(abs(net), code)
+            sign = '+' if net >= 0 else '-'
+            color = COLORS['add'] if net >= 0 else COLORS['spend']
+            ttk.Label(
+                self.foreign_currency_frame,
+                text=f"{code}: {sign}{net_str}",
+                font=FONTS['heading'],
+                foreground=color,
+            ).pack(side='left', padx=(0, PADDING['large']))
 
     def update_category(self, category_name: str, balance: float, transaction=None):
         """Update a category tab with new data."""

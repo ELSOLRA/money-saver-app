@@ -40,6 +40,13 @@ CURRENCIES = {
 }
 DEFAULT_CURRENCY = 'EUR'
 
+# Exchange rates relative to EUR (1 EUR = X units of that currency)
+EXCHANGE_RATES = {
+    'EUR': 1.0,
+    'SEK': 11.5,
+    'USD': 1.08,
+}
+
 # Budget categories (single list now)
 BUDGET_CATEGORIES = ['Transport', 'Travel', 'Entertainment', 'Investment', 'Savings', 'Others']
 

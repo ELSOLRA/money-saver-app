@@ -3,8 +3,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, List, Optional
 
-from utils.config import COLORS, FONTS, PADDING, PRESET_AMOUNTS
-from utils.helpers import format_currency
+from utils.config import COLORS, FONTS, PADDING, PRESET_AMOUNTS, CURRENCIES
+from utils.helpers import format_currency, format_currency_for_code
 
 
 class BudgetButtonPanel(ttk.Frame):
@@ -13,18 +13,40 @@ class BudgetButtonPanel(ttk.Frame):
     def __init__(
         self,
         parent,
-        on_add_click: Callable[[float], None],
-        on_spend_click: Callable[[float], None],
+        on_add_click: Callable[[float, str], None],
+        on_spend_click: Callable[[float, str], None],
+        initial_currency: str = 'EUR',
         **kwargs
     ):
         super().__init__(parent, **kwargs)
         self.on_add_click = on_add_click
         self.on_spend_click = on_spend_click
+        self._initial_currency = initial_currency
+        self.add_preset_buttons: list = []
+        self.spend_preset_buttons: list = []
         self._create_widgets()
 
     def _create_widgets(self):
         """Create all widgets for the panel."""
-        
+
+        # === INPUT CURRENCY SELECTOR ===
+        currency_row = ttk.Frame(self)
+        currency_row.pack(fill='x', pady=(0, PADDING['small']))
+
+        ttk.Label(currency_row, text="Input Currency:", font=FONTS['body']).pack(side='left')
+
+        self.input_currency_var = tk.StringVar(value=self._initial_currency)
+        currency_combo = ttk.Combobox(
+            currency_row,
+            textvariable=self.input_currency_var,
+            values=list(CURRENCIES.keys()),
+            state='readonly',
+            width=5,
+            font=FONTS['body'],
+        )
+        currency_combo.pack(side='left', padx=PADDING['small'])
+        currency_combo.bind('<<ComboboxSelected>>', self._on_input_currency_changed)
+
         # === ADD SECTION ===
         add_label = ttk.Label(
             self,
@@ -41,7 +63,7 @@ class BudgetButtonPanel(ttk.Frame):
         for i, amount in enumerate(PRESET_AMOUNTS):
             btn = tk.Button(
                 add_buttons_frame,
-                text=format_currency(amount),
+                text=format_currency_for_code(amount, self._initial_currency),
                 font=FONTS['button'],
                 bg=COLORS['add'],
                 fg='white',
@@ -49,16 +71,17 @@ class BudgetButtonPanel(ttk.Frame):
                 activeforeground='white',
                 relief='flat',
                 cursor='hand2',
-                command=lambda a=amount: self.on_add_click(a)
+                command=lambda a=amount: self.on_add_click(a, self.input_currency_var.get())
             )
             btn.pack(side='left', padx=(0 if i == 0 else PADDING['small'], 0), expand=True, fill='x')
+            self.add_preset_buttons.append(btn)
 
         # Add custom amount
         add_custom_frame = ttk.Frame(self)
         add_custom_frame.pack(fill='x', pady=PADDING['small'])
 
         ttk.Label(add_custom_frame, text="Custom:", font=FONTS['body']).pack(side='left')
-        
+
         self.add_entry = ttk.Entry(add_custom_frame, width=12, font=FONTS['body'])
         self.add_entry.pack(side='left', padx=PADDING['small'])
         self.add_entry.bind('<Return>', lambda e: self._on_custom_add())
@@ -96,7 +119,7 @@ class BudgetButtonPanel(ttk.Frame):
         for i, amount in enumerate(PRESET_AMOUNTS):
             btn = tk.Button(
                 spend_buttons_frame,
-                text=format_currency(amount),
+                text=format_currency_for_code(amount, self._initial_currency),
                 font=FONTS['button'],
                 bg=COLORS['spend'],
                 fg='white',
@@ -104,16 +127,17 @@ class BudgetButtonPanel(ttk.Frame):
                 activeforeground='white',
                 relief='flat',
                 cursor='hand2',
-                command=lambda a=amount: self.on_spend_click(a)
+                command=lambda a=amount: self.on_spend_click(a, self.input_currency_var.get())
             )
             btn.pack(side='left', padx=(0 if i == 0 else PADDING['small'], 0), expand=True, fill='x')
+            self.spend_preset_buttons.append(btn)
 
         # Spend custom amount
         spend_custom_frame = ttk.Frame(self)
         spend_custom_frame.pack(fill='x', pady=PADDING['small'])
 
         ttk.Label(spend_custom_frame, text="Custom:", font=FONTS['body']).pack(side='left')
-        
+
         self.spend_entry = ttk.Entry(spend_custom_frame, width=12, font=FONTS['body'])
         self.spend_entry.pack(side='left', padx=PADDING['small'])
         self.spend_entry.bind('<Return>', lambda e: self._on_custom_spend())
@@ -132,12 +156,20 @@ class BudgetButtonPanel(ttk.Frame):
         )
         spend_btn.pack(side='left', padx=PADDING['small'])
 
+    def _on_input_currency_changed(self, *args):
+        """Update preset button labels when the input currency selector changes."""
+        currency = self.input_currency_var.get()
+        for btn, amount in zip(self.add_preset_buttons, PRESET_AMOUNTS):
+            btn.config(text=format_currency_for_code(amount, currency))
+        for btn, amount in zip(self.spend_preset_buttons, PRESET_AMOUNTS):
+            btn.config(text=format_currency_for_code(amount, currency))
+
     def _on_custom_add(self):
         """Handle custom add amount."""
         from utils.helpers import parse_amount
         amount = parse_amount(self.add_entry.get())
         if amount is not None:
-            self.on_add_click(amount)
+            self.on_add_click(amount, self.input_currency_var.get())
             self.add_entry.delete(0, tk.END)
 
     def _on_custom_spend(self):
@@ -145,7 +177,7 @@ class BudgetButtonPanel(ttk.Frame):
         from utils.helpers import parse_amount
         amount = parse_amount(self.spend_entry.get())
         if amount is not None:
-            self.on_spend_click(amount)
+            self.on_spend_click(amount, self.input_currency_var.get())
             self.spend_entry.delete(0, tk.END)
 
 
@@ -233,13 +265,24 @@ class TransactionList(ttk.Frame):
         item_frame = ttk.Frame(self.scrollable_frame)
         item_frame.pack(fill='x', pady=2)
 
-        # Amount with color based on action
         color = COLORS['add'] if transaction.action == 'add' else COLORS['spend']
         sign = '+' if transaction.action == 'add' else '-'
-        
+
+        # Show original currency + converted amount when input currency differed
+        has_foreign = (
+            getattr(transaction, 'original_currency', None) is not None
+            and getattr(transaction, 'original_amount', None) is not None
+        )
+        if has_foreign:
+            orig_str = format_currency_for_code(transaction.original_amount, transaction.original_currency)
+            main_str = format_currency(transaction.amount)
+            amount_text = f"{sign}{orig_str} ({main_str})"
+        else:
+            amount_text = f"{sign}{format_currency(transaction.amount)}"
+
         amount_label = ttk.Label(
             item_frame,
-            text=f"{sign}{format_currency(transaction.amount)}",
+            text=amount_text,
             font=FONTS['body'],
             foreground=color
         )
@@ -249,7 +292,7 @@ class TransactionList(ttk.Frame):
         from datetime import datetime
         dt = datetime.fromisoformat(transaction.timestamp)
         time_str = dt.strftime('%m/%d %H:%M')
-        
+
         time_label = ttk.Label(
             item_frame,
             text=time_str,

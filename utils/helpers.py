@@ -5,6 +5,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 
 
 _currency_state = {'symbol': '€', 'suffix': False}
+_active_rates: dict = {}   # populated from model on startup; falls back to EXCHANGE_RATES
 
 
 def set_currency_state(symbol: str, suffix: bool) -> None:
@@ -13,12 +14,42 @@ def set_currency_state(symbol: str, suffix: bool) -> None:
     _currency_state['suffix'] = suffix
 
 
+def set_exchange_rates(rates: dict) -> None:
+    """Store the active exchange rates used by convert_currency."""
+    _active_rates.clear()
+    _active_rates.update(rates)
+
+
 def format_currency(amount: float) -> str:
     """Format a number as currency string using the active currency."""
     sym = _currency_state['symbol']
     if _currency_state['suffix']:
         return f"{amount:,.2f} {sym}"
     return f"{sym}{amount:,.2f}"
+
+
+def format_currency_for_code(amount: float, currency_code: str) -> str:
+    """Format amount in a specific currency without changing global state."""
+    from utils.config import CURRENCIES, DEFAULT_CURRENCY
+    cur = CURRENCIES.get(currency_code, CURRENCIES[DEFAULT_CURRENCY])
+    symbol = cur['symbol']
+    if cur['suffix']:
+        return f"{amount:,.2f} {symbol}"
+    return f"{symbol}{amount:,.2f}"
+
+
+def convert_currency(amount: float, from_code: str, to_code: str) -> float:
+    """Convert amount between currencies using active (or default) exchange rates."""
+    if from_code == to_code:
+        return amount
+    if _active_rates:
+        rates = _active_rates
+    else:
+        from utils.config import EXCHANGE_RATES
+        rates = EXCHANGE_RATES
+    from_rate = rates.get(from_code, 1.0)
+    to_rate = rates.get(to_code, 1.0)
+    return amount / from_rate * to_rate
 
 
 def parse_amount(value: str) -> Optional[float]:
