@@ -241,7 +241,7 @@ class MainView:
             command=self._on_add_direct_income_click,
         ).pack(side='right', padx=(PADDING['small'], PADDING['medium']))
 
-        self._direct_income_currency_var = tk.StringVar(value='EUR')
+        self._direct_income_currency_var = tk.StringVar(value='SEK')
         ttk.Combobox(
             bar,
             textvariable=self._direct_income_currency_var,
@@ -374,7 +374,7 @@ class MainView:
             bg='#d6eaf8', fg=COLORS['text_secondary'],
         ).pack(side='left', padx=(PADDING['medium'], PADDING['small']))
 
-        self.transfer_currency_var = tk.StringVar(value='EUR')
+        self.transfer_currency_var = tk.StringVar(value='SEK')
         ttk.Combobox(
             bar,
             textvariable=self.transfer_currency_var,
@@ -440,7 +440,7 @@ class MainView:
             side='left', padx=(PADDING['medium'], PADDING['small'])
         )
 
-        self.salary_currency_var = tk.StringVar(value='EUR')
+        self.salary_currency_var = tk.StringVar(value='SEK')
         ttk.Combobox(
             bar,
             textvariable=self.salary_currency_var,

@@ -25,9 +25,9 @@ def get_data_directory() -> Path:
 
 # Window settings
 WINDOW_TITLE = "Budget Saver"
-WINDOW_SIZE = "1100x760"
+WINDOW_SIZE = "1100x788"
 WINDOW_MIN_WIDTH = 900
-WINDOW_MIN_HEIGHT = 600
+WINDOW_MIN_HEIGHT = 630
 
 # Predefined amount buttons
 PRESET_AMOUNTS = [1000, 2000, 3000, 5000]

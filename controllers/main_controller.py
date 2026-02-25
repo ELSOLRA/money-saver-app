@@ -143,6 +143,19 @@ class MainController:
             orig_curr, orig_amt = input_currency, amount
         else:
             converted, orig_curr, orig_amt = amount, None, None
+
+        balance = self.model.get_category_balance(category)
+        if converted > balance:
+            if balance <= 0:
+                msg = f"'{category}' has no savings. Add to this category first."
+            else:
+                msg = (
+                    f"'{category}' only has {format_currency(balance)}.\n"
+                    f"Enter an amount up to {format_currency(balance)}."
+                )
+            self.view.show_message("No Savings", msg, "warning")
+            return
+
         transaction = self.model.add_transaction(
             amount=converted, action='spend', category=category,
             original_currency=orig_curr, original_amount=orig_amt,
@@ -261,6 +274,19 @@ class MainController:
             orig_curr, orig_amt = input_currency, amount
         else:
             converted, orig_curr, orig_amt = amount, None, None
+
+        remaining = self.expenses_model.get_total_budget()
+        if converted > remaining:
+            if remaining <= 0:
+                msg = "No funds remaining in Expenses. Add income first."
+            else:
+                msg = (
+                    f"Only {format_currency(remaining)} remaining in Expenses.\n"
+                    f"Enter an amount up to {format_currency(remaining)}."
+                )
+            self.view.show_message("No Savings", msg, "warning")
+            return
+
         transaction = self.expenses_model.add_transaction(
             amount=converted, action='spend', category=category,
             original_currency=orig_curr, original_amount=orig_amt,
