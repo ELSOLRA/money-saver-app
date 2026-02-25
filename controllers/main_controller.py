@@ -151,10 +151,11 @@ class MainController:
         if path:
             export_to_excel(
                 transactions=self.model.transactions,
-                categories=self.model.categories,                        
-                get_category_balance=self.model.get_category_balance,    
-                get_totals=None,                                         
-                output_path=path
+                categories=self.model.categories,
+                get_category_balance=self.model.get_category_balance,
+                get_totals=None,
+                output_path=path,
+                main_currency=self.model.currency,
             )
             self.view.show_message("Success", f"Exported to:\n{os.path.basename(path)}")
     

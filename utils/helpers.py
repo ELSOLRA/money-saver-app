@@ -74,18 +74,35 @@ def truncate_text(text: str, max_length: int = 30) -> str:
         return text
     return text[:max_length - 3] + '...'
 
-def export_to_excel(transactions, categories, get_category_balance, get_totals, output_path: str) -> str:
+def export_to_excel(transactions, categories, get_category_balance, get_totals, output_path: str, main_currency: str = 'EUR') -> str:
     """Export transactions to a formatted Excel file."""
+    from datetime import datetime
+    from utils.config import CURRENCIES
+    import openpyxl.utils
+
     wb = openpyxl.Workbook()
-    
+    cur_sym = _currency_state['symbol']
+
+    # Detect foreign currencies used across all transactions (sorted for stable column order)
+    foreign_currencies = sorted(set(
+        t.original_currency for t in transactions
+        if t.original_currency and t.original_amount is not None
+    ))
+
+    # Shared styles
+    header_fill = PatternFill("solid", start_color="2C3E50")
+    header_font = Font(bold=True, color="FFFFFF", name="Segoe UI")
+    add_fill    = PatternFill("solid", start_color="D5F5E3")
+    spend_fill  = PatternFill("solid", start_color="FADBD8")
+    total_fill  = PatternFill("solid", start_color="F0F0F0")
+
     # ── Sheet 1: All Transactions ──────────────────────────────
     ws = wb.active
     ws.title = "All Transactions"
 
-    cur_sym = _currency_state['symbol']
     headers = ["#", "Date", "Time", "Category", "Action", f"Amount ({cur_sym})", "Note"]
-    header_fill = PatternFill("solid", start_color="2C3E50")
-    header_font = Font(bold=True, color="FFFFFF", name="Segoe UI")
+    if foreign_currencies:
+        headers += ["Orig. Currency", "Orig. Amount"]
 
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -93,51 +110,64 @@ def export_to_excel(transactions, categories, get_category_balance, get_totals, 
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
-    add_fill = PatternFill("solid", start_color="D5F5E3")
-    spend_fill = PatternFill("solid", start_color="FADBD8")
-
     for i, t in enumerate(transactions, 1):
-        from datetime import datetime
         dt = datetime.fromisoformat(t.timestamp)
         row_fill = add_fill if t.action == "add" else spend_fill
         amount = t.amount if t.action == "add" else -t.amount
         row = [i, dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
                t.category, t.action.capitalize(), amount, t.note or ""]
+        if foreign_currencies:
+            row += [t.original_currency or "",
+                    t.original_amount if t.original_amount is not None else ""]
         for col, val in enumerate(row, 1):
             cell = ws.cell(row=i + 1, column=col, value=val)
             cell.fill = row_fill
             cell.font = Font(name="Segoe UI", size=10)
 
-    # ── Sheet 2: Summary (balances + totals) ───────────────────
+    # ── Sheet 2: Summary (balances + totals + foreign currency columns) ─
     ws_summary = wb.create_sheet(title="Summary")
-    
-    # Section title
+
     ws_summary["A1"] = "Budget Summary"
     ws_summary["A1"].font = Font(bold=True, size=14, name="Segoe UI")
 
-    # Category balances table
-    ws_summary["A3"] = "Category"
-    ws_summary["B3"] = f"Added ({cur_sym})"
-    ws_summary["C3"] = f"Spent ({cur_sym})"
-    ws_summary["D3"] = f"Balance ({cur_sym})"
-    for col in ["A3", "B3", "C3", "D3"]:
-        ws_summary[col].font = Font(bold=True, color="FFFFFF", name="Segoe UI")
-        ws_summary[col].fill = PatternFill("solid", start_color="2C3E50")
-        ws_summary[col].alignment = Alignment(horizontal="center")
+    # Build header row: fixed columns + one added/spent pair per foreign currency
+    sum_headers = ["Category", f"Added ({cur_sym})", f"Spent ({cur_sym})", f"Balance ({cur_sym})"]
+    for fc in foreign_currencies:
+        fc_sym = CURRENCIES.get(fc, {}).get('symbol', fc)
+        sum_headers += [f"Added ({fc_sym})", f"Spent ({fc_sym})"]
+
+    for col, h in enumerate(sum_headers, 1):
+        cell = ws_summary.cell(row=3, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
 
     for row_i, cat in enumerate(categories, start=4):
         cat_transactions = [t for t in transactions if t.category == cat]
-        added = sum(t.amount for t in cat_transactions if t.action == "add")
-        spent = sum(t.amount for t in cat_transactions if t.action == "spend")
+        added   = sum(t.amount for t in cat_transactions if t.action == "add")
+        spent   = sum(t.amount for t in cat_transactions if t.action == "spend")
         balance = get_category_balance(cat)
-        balance_fill = PatternFill("solid", start_color="D5F5E3") if balance >= 0 else PatternFill("solid", start_color="FADBD8")
+        b_fill  = add_fill if balance >= 0 else spend_fill
 
         ws_summary.cell(row=row_i, column=1, value=cat).font = Font(name="Segoe UI")
         ws_summary.cell(row=row_i, column=2, value=added).font = Font(name="Segoe UI", color="27AE60")
         ws_summary.cell(row=row_i, column=3, value=spent).font = Font(name="Segoe UI", color="E74C3C")
         cell = ws_summary.cell(row=row_i, column=4, value=balance)
         cell.font = Font(bold=True, name="Segoe UI")
-        cell.fill = balance_fill
+        cell.fill = b_fill
+
+        for fi, fc in enumerate(foreign_currencies):
+            col = 5 + fi * 2
+            fc_added = sum(t.original_amount for t in cat_transactions
+                           if t.action == "add" and t.original_currency == fc
+                           and t.original_amount is not None)
+            fc_spent = sum(t.original_amount for t in cat_transactions
+                           if t.action == "spend" and t.original_currency == fc
+                           and t.original_amount is not None)
+            if fc_added > 0:
+                ws_summary.cell(row=row_i, column=col,     value=fc_added).font = Font(name="Segoe UI", color="27AE60")
+            if fc_spent > 0:
+                ws_summary.cell(row=row_i, column=col + 1, value=fc_spent).font = Font(name="Segoe UI", color="E74C3C")
 
     # Totals row
     total_row = len(categories) + 4
@@ -146,29 +176,89 @@ def export_to_excel(transactions, categories, get_category_balance, get_totals, 
     ws_summary.cell(row=total_row, column=3, value=f"=SUM(C4:C{total_row-1})").font = Font(bold=True, color="E74C3C")
     ws_summary.cell(row=total_row, column=4, value=f"=SUM(D4:D{total_row-1})").font = Font(bold=True)
     for col in range(1, 5):
-        ws_summary.cell(row=total_row, column=col).fill = PatternFill("solid", start_color="F0F0F0")
+        ws_summary.cell(row=total_row, column=col).fill = total_fill
+
+    for fi, fc in enumerate(foreign_currencies):
+        col = 5 + fi * 2
+        cl_add = openpyxl.utils.get_column_letter(col)
+        cl_spe = openpyxl.utils.get_column_letter(col + 1)
+        cell_add = ws_summary.cell(row=total_row, column=col,
+                                   value=f"=SUM({cl_add}4:{cl_add}{total_row-1})")
+        cell_add.font = Font(bold=True, color="27AE60")
+        cell_add.fill = total_fill
+        cell_spe = ws_summary.cell(row=total_row, column=col + 1,
+                                   value=f"=SUM({cl_spe}4:{cl_spe}{total_row-1})")
+        cell_spe.font = Font(bold=True, color="E74C3C")
+        cell_spe.fill = total_fill
 
     # ── Sheet 3+: Per-category transaction sheets ──────────────
-    from datetime import datetime
     for cat in categories:
         ws_cat = wb.create_sheet(title=cat[:31])
-        ws_cat.append(["Date", "Time", "Action", f"Amount ({cur_sym})", "Note"])
-        for cell in ws_cat[1]:
-            cell.font = Font(bold=True, name="Segoe UI")
-            cell.fill = PatternFill("solid", start_color="2C3E50")
-            cell.font = Font(bold=True, color="FFFFFF", name="Segoe UI")
+        cat_transactions = [x for x in transactions if x.category == cat]
 
-        for t in [x for x in transactions if x.category == cat]:
-            dt = datetime.fromisoformat(t.timestamp)
+        # Foreign currencies used specifically in this category
+        cat_foreign = sorted(set(
+            t.original_currency for t in cat_transactions
+            if t.original_currency and t.original_amount is not None
+        ))
+
+        cat_headers = ["Date", "Time", "Action", f"Amount ({cur_sym})", "Note"]
+        if cat_foreign:
+            cat_headers += ["Orig. Currency", "Orig. Amount"]
+
+        ws_cat.append(cat_headers)
+        for cell in ws_cat[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+
+        for t in cat_transactions:
+            dt  = datetime.fromisoformat(t.timestamp)
             amt = t.amount if t.action == "add" else -t.amount
-            ws_cat.append([dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
-                           t.action.capitalize(), amt, t.note or ""])
+            row = [dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
+                   t.action.capitalize(), amt, t.note or ""]
+            if cat_foreign:
+                row += [t.original_currency or "",
+                        t.original_amount if t.original_amount is not None else ""]
+            ws_cat.append(row)
 
         last_row = ws_cat.max_row + 1
         ws_cat.cell(row=last_row, column=3, value="TOTAL").font = Font(bold=True)
         ws_cat.cell(row=last_row, column=4, value=f"=SUM(D2:D{last_row-1})").font = Font(bold=True)
 
-    # Auto-width
+    # ── Foreign currency sheets (one per currency) ──────────────
+    for fc in foreign_currencies:
+        fc_sym  = CURRENCIES.get(fc, {}).get('symbol', fc)
+        ws_fc   = wb.create_sheet(title=f"{fc} Transactions"[:31])
+        fc_headers = ["#", "Date", "Time", "Category", "Action",
+                      f"Orig. Amount ({fc_sym})", f"Conv. Amount ({cur_sym})", "Note"]
+
+        for col, h in enumerate(fc_headers, 1):
+            cell = ws_fc.cell(row=1, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+        fc_transactions = [t for t in transactions
+                           if t.original_currency == fc and t.original_amount is not None]
+
+        for i, t in enumerate(fc_transactions, 1):
+            dt       = datetime.fromisoformat(t.timestamp)
+            row_fill = add_fill if t.action == "add" else spend_fill
+            orig_amt = t.original_amount if t.action == "add" else -t.original_amount
+            conv_amt = t.amount          if t.action == "add" else -t.amount
+            row = [i, dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
+                   t.category, t.action.capitalize(), orig_amt, conv_amt, t.note or ""]
+            for col, val in enumerate(row, 1):
+                cell = ws_fc.cell(row=i + 1, column=col, value=val)
+                cell.fill = row_fill
+                cell.font = Font(name="Segoe UI", size=10)
+
+        last_row = ws_fc.max_row + 1
+        ws_fc.cell(row=last_row, column=5, value="TOTAL").font = Font(bold=True)
+        ws_fc.cell(row=last_row, column=6, value=f"=SUM(F2:F{last_row-1})").font = Font(bold=True)
+        ws_fc.cell(row=last_row, column=7, value=f"=SUM(G2:G{last_row-1})").font = Font(bold=True)
+
+    # Auto-width for all sheets
     for sheet in wb.worksheets:
         for col in sheet.columns:
             max_len = max((len(str(c.value or "")) for c in col), default=0)
