@@ -129,23 +129,33 @@ class DataModel:
                     total -= t.amount
         return total
 
-    def get_total_budget(self) -> float:
+    def get_total_budget(self, exclude_categories=None) -> float:
         """Get total budget across all categories."""
         total = 0
         for t in self.transactions:
+            if exclude_categories and t.category in exclude_categories:
+                continue
             if t.action == 'add':
                 total += t.amount
-            else:  
+            else:
                 total -= t.amount
         return total
 
-    def get_total_added(self) -> float:
+    def get_total_added(self, exclude_categories=None) -> float:
         """Get total money added across all categories."""
-        return sum(t.amount for t in self.transactions if t.action == 'add')
+        return sum(
+            t.amount for t in self.transactions
+            if t.action == 'add'
+            and (not exclude_categories or t.category not in exclude_categories)
+        )
 
-    def get_total_spent(self) -> float:
+    def get_total_spent(self, exclude_categories=None) -> float:
         """Get total money spent across all categories."""
-        return sum(t.amount for t in self.transactions if t.action == 'spend')
+        return sum(
+            t.amount for t in self.transactions
+            if t.action == 'spend'
+            and (not exclude_categories or t.category not in exclude_categories)
+        )
 
     def get_transactions_by_category(self, category: str) -> List[Transaction]:
         """Get all transactions for a specific category."""
@@ -214,3 +224,20 @@ class DataModel:
         """Set the active currency and persist it."""
         self.currency = currency_code
         self.save_data()
+
+    def get_distributable_balance(self) -> float:
+        """
+        Money received via transfers from expenses minus money already
+        allocated to actual savings categories.
+        distributable = sum(DISTRIBUTABLE_CATEGORY adds) - sum(all other adds)
+        """
+        from utils.config import DISTRIBUTABLE_CATEGORY
+        transferred = sum(
+            t.amount for t in self.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'add'
+        )
+        allocated = sum(
+            t.amount for t in self.transactions
+            if t.category != DISTRIBUTABLE_CATEGORY and t.action == 'add'
+        )
+        return transferred - allocated

@@ -50,6 +50,16 @@ EXCHANGE_RATES = {
 # Budget categories (single list now)
 BUDGET_CATEGORIES = ['Transport', 'Travel', 'Entertainment', 'Investment', 'Savings', 'Others']
 
+# Expense categories (separate tracker)
+EXPENSE_CATEGORIES = ['Food & Drink', 'Housing', 'Transport', 'Healthcare', 'Shopping', 'Entertainment', 'Others']
+
+# Internal category used for salary / income entries (never shown as a tab)
+SALARY_CATEGORY = '__salary__'
+
+# Internal categories for the expenses → savings transfer bridge#
+DISTRIBUTABLE_CATEGORY = '__distributable__'   
+TRANSFER_OUT_CATEGORY  = '__transfer_out__'   
+
 # Colors
 COLORS = {
     'add': '#2ecc71',              # Green - for adding
@@ -81,6 +91,7 @@ PADDING = {
     'large': 20,
 }
 
-# Data file - stored in data folder
+# Data files - stored in data folder
 DATA_DIR = get_data_directory()
 DATA_FILE = str(DATA_DIR / 'savings_data.json')
+EXPENSE_DATA_FILE = str(DATA_DIR / 'expenses_data.json')

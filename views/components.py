@@ -13,15 +13,17 @@ class BudgetButtonPanel(ttk.Frame):
     def __init__(
         self,
         parent,
-        on_add_click: Callable[[float, str], None],
+        on_add_click: Optional[Callable[[float, str], None]],
         on_spend_click: Callable[[float, str], None],
         initial_currency: str = 'EUR',
+        show_add: bool = True,
         **kwargs
     ):
         super().__init__(parent, **kwargs)
         self.on_add_click = on_add_click
         self.on_spend_click = on_spend_click
         self._initial_currency = initial_currency
+        self.show_add = show_add
         self.add_preset_buttons: list = []
         self.spend_preset_buttons: list = []
         self._create_widgets()
@@ -47,61 +49,44 @@ class BudgetButtonPanel(ttk.Frame):
         currency_combo.pack(side='left', padx=PADDING['small'])
         currency_combo.bind('<<ComboboxSelected>>', self._on_input_currency_changed)
 
-        # === ADD SECTION ===
-        add_label = ttk.Label(
-            self,
-            text="➕ Add to Budget",
-            font=FONTS['heading'],
-            foreground=COLORS['add']
-        )
-        add_label.pack(anchor='w', pady=(0, PADDING['small']))
+        if self.show_add:
+            # === ADD SECTION ===
+            ttk.Label(
+                self, text="➕ Add to Budget",
+                font=FONTS['heading'], foreground=COLORS['add']
+            ).pack(anchor='w', pady=(0, PADDING['small']))
 
-        # Add preset buttons
-        add_buttons_frame = ttk.Frame(self)
-        add_buttons_frame.pack(fill='x', pady=PADDING['small'])
+            add_buttons_frame = ttk.Frame(self)
+            add_buttons_frame.pack(fill='x', pady=PADDING['small'])
 
-        for i, amount in enumerate(PRESET_AMOUNTS):
-            btn = tk.Button(
-                add_buttons_frame,
-                text=format_currency_for_code(amount, self._initial_currency),
-                font=FONTS['button'],
-                bg=COLORS['add'],
-                fg='white',
-                activebackground=COLORS['add_hover'],
-                activeforeground='white',
-                relief='flat',
-                cursor='hand2',
-                command=lambda a=amount: self.on_add_click(a, self.input_currency_var.get())
-            )
-            btn.pack(side='left', padx=(0 if i == 0 else PADDING['small'], 0), expand=True, fill='x')
-            self.add_preset_buttons.append(btn)
+            for i, amount in enumerate(PRESET_AMOUNTS):
+                btn = tk.Button(
+                    add_buttons_frame,
+                    text=format_currency_for_code(amount, self._initial_currency),
+                    font=FONTS['button'],
+                    bg=COLORS['add'], fg='white',
+                    activebackground=COLORS['add_hover'], activeforeground='white',
+                    relief='flat', cursor='hand2',
+                    command=lambda a=amount: self.on_add_click(a, self.input_currency_var.get())
+                )
+                btn.pack(side='left', padx=(0 if i == 0 else PADDING['small'], 0), expand=True, fill='x')
+                self.add_preset_buttons.append(btn)
 
-        # Add custom amount
-        add_custom_frame = ttk.Frame(self)
-        add_custom_frame.pack(fill='x', pady=PADDING['small'])
+            add_custom_frame = ttk.Frame(self)
+            add_custom_frame.pack(fill='x', pady=PADDING['small'])
+            ttk.Label(add_custom_frame, text="Custom:", font=FONTS['body']).pack(side='left')
+            self.add_entry = ttk.Entry(add_custom_frame, width=12, font=FONTS['body'])
+            self.add_entry.pack(side='left', padx=PADDING['small'])
+            self.add_entry.bind('<Return>', lambda e: self._on_custom_add())
+            tk.Button(
+                add_custom_frame, text="Add",
+                font=FONTS['button'], bg=COLORS['add'], fg='white',
+                activebackground=COLORS['add_hover'], activeforeground='white',
+                relief='flat', cursor='hand2', command=self._on_custom_add
+            ).pack(side='left', padx=PADDING['small'])
 
-        ttk.Label(add_custom_frame, text="Custom:", font=FONTS['body']).pack(side='left')
-
-        self.add_entry = ttk.Entry(add_custom_frame, width=12, font=FONTS['body'])
-        self.add_entry.pack(side='left', padx=PADDING['small'])
-        self.add_entry.bind('<Return>', lambda e: self._on_custom_add())
-
-        add_btn = tk.Button(
-            add_custom_frame,
-            text="Add",
-            font=FONTS['button'],
-            bg=COLORS['add'],
-            fg='white',
-            activebackground=COLORS['add_hover'],
-            activeforeground='white',
-            relief='flat',
-            cursor='hand2',
-            command=self._on_custom_add
-        )
-        add_btn.pack(side='left', padx=PADDING['small'])
-
-        # Separator
-        ttk.Separator(self, orient='horizontal').pack(fill='x', pady=PADDING['medium'])
+            # Separator between add and spend sections
+            ttk.Separator(self, orient='horizontal').pack(fill='x', pady=PADDING['medium'])
 
         # === SPEND SECTION ===
         spend_label = ttk.Label(
