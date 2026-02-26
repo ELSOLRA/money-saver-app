@@ -13,8 +13,8 @@ def get_data_directory() -> Path:
         # Running as compiled .exe - use exe's directory
         app_dir = Path(sys.executable).parent
     else:
-        # Running as script - use script's directory
-        app_dir = Path(__file__).parent.parent
+        # Running as script - repo root (one level above desktop/)
+        app_dir = Path(__file__).parent.parent.parent
     
     # Create data folder if it doesn't exist
     data_dir = app_dir / 'data'
