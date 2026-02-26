@@ -50,6 +50,10 @@ class MainView:
         self.on_remove_savings_note_preset: Optional[Callable] = None
         self.on_add_expense_note_preset:    Optional[Callable] = None
         self.on_remove_expense_note_preset: Optional[Callable] = None
+        self.on_edit_savings_transaction:   Optional[Callable] = None
+        self.on_delete_savings_transaction: Optional[Callable] = None
+        self.on_edit_expense_transaction:   Optional[Callable] = None
+        self.on_delete_expense_transaction: Optional[Callable] = None
 
         self._create_widgets()
 
@@ -373,7 +377,11 @@ class MainView:
         ttk.Label(right_panel, text="Recent Transactions", font=FONTS['heading']).pack(
             anchor='w', pady=(0, PADDING['small'])
         )
-        tx_list = TransactionList(right_panel)
+        tx_list = TransactionList(
+            right_panel,
+            on_edit=lambda t, c=category_name: self._on_edit_transaction_click(t, c, is_expense=False),
+            on_delete=lambda t, c=category_name: self._on_delete_transaction_click(t, c, is_expense=False),
+        )
         tx_list.pack(fill='both', expand=True)
         for t in reversed(transactions[-20:]):
             tx_list.add_item(t)
@@ -684,6 +692,94 @@ class MainView:
                 if self.on_delete_direct_income:
                     self.on_delete_direct_income(self._direct_income_transaction)
 
+    # ── Transaction edit / delete ────────────────────────────────────
+
+    def _on_edit_transaction_click(self, transaction, category, is_expense=False):
+        from utils.config import CURRENCIES
+        if transaction.original_currency and transaction.original_amount is not None:
+            edit_currency = transaction.original_currency
+            edit_amount   = transaction.original_amount
+        else:
+            edit_currency = self.currency_var.get()
+            edit_amount   = transaction.amount
+
+        action_label = 'Add' if transaction.action == 'add' else 'Spend'
+        has_note = transaction.action == 'spend'
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Edit {action_label} Transaction")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        w, h = 360, 205 if has_note else 155
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width()  - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        frame = ttk.Frame(dialog, padding=PADDING['large'])
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text=f"Edit {action_label} Transaction", font=FONTS['heading']).pack(anchor='w', pady=(0, PADDING['medium']))
+
+        amount_row = ttk.Frame(frame)
+        amount_row.pack(fill='x', pady=PADDING['small'])
+        ttk.Label(amount_row, text="Amount:", font=FONTS['body']).pack(side='left')
+        amount_entry = ttk.Entry(amount_row, width=14, font=FONTS['body'])
+        amount_entry.insert(0, str(edit_amount))
+        amount_entry.pack(side='left', padx=PADDING['small'])
+        amount_entry.select_range(0, tk.END)
+        amount_entry.focus_set()
+        currency_var = tk.StringVar(value=edit_currency)
+        ttk.Combobox(
+            amount_row, textvariable=currency_var,
+            values=list(CURRENCIES.keys()), state='readonly', width=5, font=FONTS['body'],
+        ).pack(side='left', padx=PADDING['small'])
+
+        note_entry = None
+        if has_note:
+            note_row = ttk.Frame(frame)
+            note_row.pack(fill='x', pady=PADDING['small'])
+            ttk.Label(note_row, text="Note:", font=FONTS['body']).pack(side='left')
+            note_entry = ttk.Entry(note_row, width=24, font=FONTS['body'])
+            note_entry.insert(0, transaction.note or '')
+            note_entry.pack(side='left', padx=PADDING['small'])
+
+        def _save():
+            from utils.helpers import parse_amount
+            new_amt = parse_amount(amount_entry.get())
+            if new_amt is None:
+                self.show_message("Error", "Please enter a valid amount.", "error")
+                return
+            new_note = note_entry.get().strip() if note_entry else None
+            cb = self.on_edit_expense_transaction if is_expense else self.on_edit_savings_transaction
+            if cb:
+                cb(transaction, category, new_amt, currency_var.get(), new_note)
+            dialog.destroy()
+
+        amount_entry.bind('<Return>', lambda e: _save())
+        if note_entry:
+            note_entry.bind('<Return>', lambda e: _save())
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill='x', pady=(PADDING['medium'], 0))
+        tk.Button(
+            btn_row, text="Cancel", font=FONTS['body'],
+            bg=COLORS['text_secondary'], fg='white', relief='flat', cursor='hand2',
+            command=dialog.destroy,
+        ).pack(side='right', padx=(PADDING['small'], 0))
+        tk.Button(
+            btn_row, text="Save", font=FONTS['button'],
+            bg=COLORS['add'], fg='white', relief='flat', cursor='hand2',
+            command=_save,
+        ).pack(side='right')
+
+    def _on_delete_transaction_click(self, transaction, category, is_expense=False):
+        action = 'add' if transaction.action == 'add' else 'spend'
+        if messagebox.askyesno("Confirm Delete", f"Delete this {action} transaction?\nThis cannot be undone."):
+            cb = self.on_delete_expense_transaction if is_expense else self.on_delete_savings_transaction
+            if cb:
+                cb(transaction, category)
+
     # ── Expenses content ─────────────────────────────────────────────
 
     def _create_expenses_content(self, parent):
@@ -792,7 +888,11 @@ class MainView:
         ttk.Label(right_panel, text="Recent Transactions", font=FONTS['heading']).pack(
             anchor='w', pady=(0, PADDING['small'])
         )
-        tx_list = TransactionList(right_panel)
+        tx_list = TransactionList(
+            right_panel,
+            on_edit=lambda t, c=category_name: self._on_edit_transaction_click(t, c, is_expense=True),
+            on_delete=lambda t, c=category_name: self._on_delete_transaction_click(t, c, is_expense=True),
+        )
         tx_list.pack(fill='both', expand=True)
         for t in reversed(transactions[-20:]):
             tx_list.add_item(t)

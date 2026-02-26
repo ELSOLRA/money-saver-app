@@ -68,6 +68,10 @@ class MainController:
         self.view.on_remove_savings_note_preset = self.remove_savings_note_preset
         self.view.on_add_expense_note_preset    = self.add_expense_note_preset
         self.view.on_remove_expense_note_preset = self.remove_expense_note_preset
+        self.view.on_edit_savings_transaction   = self.edit_savings_transaction
+        self.view.on_delete_savings_transaction = self.delete_savings_transaction
+        self.view.on_edit_expense_transaction   = self.edit_expense_transaction
+        self.view.on_delete_expense_transaction = self.delete_expense_transaction
 
     def _initialize_view(self):
         self.view.set_currency(self.model.currency)
@@ -552,6 +556,92 @@ class MainController:
         self._update_expenses_summary()
         self._update_expenses_foreign_currency_display()
         self._update_income_list()
+
+    # ── Transaction edit / delete ────────────────────────────────────
+
+    def edit_savings_transaction(self, transaction, category, new_amount, input_currency, new_note):
+        main_currency = self.model.currency
+        if input_currency and input_currency != main_currency:
+            converted = convert_currency(new_amount, input_currency, main_currency)
+            orig_curr, orig_amt = input_currency, new_amount
+        else:
+            converted, orig_curr, orig_amt = new_amount, None, None
+
+        old_amount = transaction.amount
+        category_balance = self.model.get_category_balance(category)
+
+        if transaction.action == 'add':
+            if category_balance - old_amount + converted < 0:
+                min_allowed = max(0.0, old_amount - category_balance)
+                self.view.show_message("Cannot Reduce", f"Minimum allowed amount is {format_currency(min_allowed)}.", "warning")
+                return
+            distributable = self.model.get_distributable_balance()
+            if distributable + old_amount - converted < 0:
+                max_allowed = old_amount + distributable
+                self.view.show_message("Cannot Increase", f"Maximum allowed amount is {format_currency(max_allowed)}.", "warning")
+                return
+        else:
+            if category_balance + old_amount - converted < 0:
+                max_allowed = old_amount + category_balance
+                self.view.show_message("Cannot Increase", f"Maximum allowed amount is {format_currency(max_allowed)}.", "warning")
+                return
+
+        transaction.note = new_note or None
+        self.model.update_transaction_amount(transaction, converted, orig_amt, orig_curr)
+        self._update_summary()
+        self._update_distributable_balance()
+        self._update_foreign_currency_display()
+        self.view.update_category(category, self.model.get_category_balance(category))
+        self.view.refresh_all_transactions(category, self.model.get_transactions_by_category(category))
+
+    def delete_savings_transaction(self, transaction, category):
+        old_amount = transaction.amount
+        if transaction.action == 'add':
+            category_balance = self.model.get_category_balance(category)
+            if category_balance - old_amount < 0:
+                self.view.show_message(
+                    "Cannot Delete",
+                    "This amount has already been partially spent.\nDelete or reduce spend transactions first.",
+                    "warning",
+                )
+                return
+        self.model.delete_transaction_by_ref(transaction)
+        self._update_summary()
+        self._update_distributable_balance()
+        self._update_foreign_currency_display()
+        self.view.update_category(category, self.model.get_category_balance(category))
+        self.view.refresh_all_transactions(category, self.model.get_transactions_by_category(category))
+
+    def edit_expense_transaction(self, transaction, category, new_amount, input_currency, new_note):
+        main_currency = self.expenses_model.currency
+        if input_currency and input_currency != main_currency:
+            converted = convert_currency(new_amount, input_currency, main_currency)
+            orig_curr, orig_amt = input_currency, new_amount
+        else:
+            converted, orig_curr, orig_amt = new_amount, None, None
+
+        old_amount = transaction.amount
+        remaining = self.expenses_model.get_total_budget()
+        if remaining + old_amount - converted < 0:
+            max_allowed = old_amount + remaining
+            self.view.show_message("Cannot Increase", f"Maximum allowed amount is {format_currency(max_allowed)}.", "warning")
+            return
+
+        transaction.note = new_note or None
+        self.expenses_model.update_transaction_amount(transaction, converted, orig_amt, orig_curr)
+        self._update_expenses_summary()
+        self._update_expenses_foreign_currency_display()
+        spent = sum(t.amount for t in self.expenses_model.get_transactions_by_category(category) if t.action == 'spend')
+        self.view.update_expense_category(category, spent)
+        self.view.refresh_expense_transactions(category, self.expenses_model.get_transactions_by_category(category))
+
+    def delete_expense_transaction(self, transaction, category):
+        self.expenses_model.delete_transaction_by_ref(transaction)
+        self._update_expenses_summary()
+        self._update_expenses_foreign_currency_display()
+        spent = sum(t.amount for t in self.expenses_model.get_transactions_by_category(category) if t.action == 'spend')
+        self.view.update_expense_category(category, spent)
+        self.view.refresh_expense_transactions(category, self.expenses_model.get_transactions_by_category(category))
 
     def _update_distributable_balance(self):
         self.view.update_distributable_balance(self.model.get_distributable_balance())

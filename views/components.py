@@ -274,8 +274,10 @@ class SummaryCard(ttk.Frame):
 class TransactionList(ttk.Frame):
     """Scrollable list of transactions."""
 
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, on_edit=None, on_delete=None, **kwargs):
         super().__init__(parent, **kwargs)
+        self.on_edit = on_edit
+        self.on_delete = on_delete
         self._create_widgets()
 
     def _create_widgets(self):
@@ -356,3 +358,16 @@ class TransactionList(ttk.Frame):
             foreground=COLORS['text_secondary']
         )
         time_label.pack(side='right')
+
+        if self.on_edit or self.on_delete:
+            for widget in item_frame.winfo_children():
+                widget.bind('<Button-3>', lambda e, t=transaction: self._show_context_menu(e, t))
+            item_frame.bind('<Button-3>', lambda e, t=transaction: self._show_context_menu(e, t))
+
+    def _show_context_menu(self, event, transaction):
+        menu = tk.Menu(self, tearoff=0)
+        if self.on_edit:
+            menu.add_command(label='Edit', command=lambda: self.on_edit(transaction))
+        if self.on_delete:
+            menu.add_command(label='Delete', command=lambda: self.on_delete(transaction))
+        menu.tk_popup(event.x_root, event.y_root)
