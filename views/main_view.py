@@ -42,6 +42,8 @@ class MainView:
         self.on_delete_expense_category: Optional[Callable] = None
         self.on_transfer_to_savings:     Optional[Callable] = None
         self.on_add_direct_income:       Optional[Callable] = None
+        self.on_edit_direct_income:      Optional[Callable] = None
+        self.on_delete_direct_income:    Optional[Callable] = None
         self.on_edit_income:             Optional[Callable] = None
         self.on_delete_income:           Optional[Callable] = None
 
@@ -233,7 +235,29 @@ class MainView:
         )
         self._distributable_label.pack(side='left')
 
-        # Right: Other Income quick-add (adds directly to distributable pool)
+        # Right: Other Income input + Add / Edit / Delete (packed right-to-left)
+        self._direct_income_transaction = None
+
+        self._direct_income_delete_btn = tk.Button(
+            bar, text="Delete",
+            font=FONTS['button'],
+            bg=COLORS['spend'], fg='white',
+            activebackground=COLORS['spend_hover'], activeforeground='white',
+            relief='flat', cursor='hand2',
+            command=self._on_delete_direct_income_last,
+        )
+        self._direct_income_delete_btn.pack(side='right', padx=(0, PADDING['medium']))
+
+        self._direct_income_edit_btn = tk.Button(
+            bar, text="Edit",
+            font=FONTS['button'],
+            bg=COLORS['text_secondary'], fg='white',
+            activebackground=COLORS['text_primary'], activeforeground='white',
+            relief='flat', cursor='hand2',
+            command=self._on_edit_direct_income_last,
+        )
+        self._direct_income_edit_btn.pack(side='right', padx=(0, PADDING['small']))
+
         tk.Button(
             bar, text="Add →",
             font=FONTS['button'],
@@ -241,7 +265,7 @@ class MainView:
             activebackground=COLORS['add_hover'], activeforeground='white',
             relief='flat', cursor='hand2',
             command=self._on_add_direct_income_click,
-        ).pack(side='right', padx=(PADDING['small'], PADDING['medium']))
+        ).pack(side='right', padx=PADDING['small'])
 
         self._direct_income_currency_var = tk.StringVar(value='SEK')
         ttk.Combobox(
@@ -571,6 +595,85 @@ class MainView:
             if messagebox.askyesno("Confirm Delete", "Delete the last income entry?\nThis cannot be undone."):
                 if self.on_delete_income:
                     self.on_delete_income(self._edit_income_transaction)
+
+    # ── Direct income (Other Income / savings) edit & delete ─────────
+
+    def update_direct_income_display(self, transactions: list):
+        """Track the most recent Other Income transaction for Edit/Delete."""
+        self._direct_income_transaction = transactions[-1] if transactions else None
+
+    def _on_edit_direct_income_click(self, transaction):
+        """Open a modal dialog to correct an Other Income transaction."""
+        from utils.config import CURRENCIES
+        if transaction.original_currency and transaction.original_amount is not None:
+            edit_currency = transaction.original_currency
+            edit_amount   = transaction.original_amount
+        else:
+            edit_currency = self.currency_var.get()
+            edit_amount   = transaction.amount
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Other Income")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        w, h = 340, 155
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width()  - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        frame = ttk.Frame(dialog, padding=PADDING['large'])
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text="Edit Other Income Amount", font=FONTS['heading']).pack(anchor='w', pady=(0, PADDING['medium']))
+
+        input_row = ttk.Frame(frame)
+        input_row.pack(fill='x', pady=PADDING['small'])
+        ttk.Label(input_row, text="Amount:", font=FONTS['body']).pack(side='left')
+        amount_entry = ttk.Entry(input_row, width=14, font=FONTS['body'])
+        amount_entry.insert(0, str(edit_amount))
+        amount_entry.pack(side='left', padx=PADDING['small'])
+        amount_entry.select_range(0, tk.END)
+        amount_entry.focus_set()
+        currency_var = tk.StringVar(value=edit_currency)
+        ttk.Combobox(
+            input_row, textvariable=currency_var,
+            values=list(CURRENCIES.keys()), state='readonly', width=5, font=FONTS['body'],
+        ).pack(side='left', padx=PADDING['small'])
+
+        def _save():
+            from utils.helpers import parse_amount
+            new_amt = parse_amount(amount_entry.get())
+            if new_amt is None:
+                self.show_message("Error", "Please enter a valid amount.", "error")
+                return
+            if self.on_edit_direct_income:
+                self.on_edit_direct_income(transaction, new_amt, currency_var.get())
+            dialog.destroy()
+
+        amount_entry.bind('<Return>', lambda e: _save())
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill='x', pady=(PADDING['medium'], 0))
+        tk.Button(
+            btn_row, text="Cancel", font=FONTS['body'],
+            bg=COLORS['text_secondary'], fg='white', relief='flat', cursor='hand2',
+            command=dialog.destroy,
+        ).pack(side='right', padx=(PADDING['small'], 0))
+        tk.Button(
+            btn_row, text="Save", font=FONTS['button'],
+            bg=COLORS['add'], fg='white', relief='flat', cursor='hand2',
+            command=_save,
+        ).pack(side='right')
+
+    def _on_edit_direct_income_last(self):
+        if self._direct_income_transaction:
+            self._on_edit_direct_income_click(self._direct_income_transaction)
+
+    def _on_delete_direct_income_last(self):
+        if self._direct_income_transaction:
+            if messagebox.askyesno("Confirm Delete", "Delete the last Other Income entry?\nThis cannot be undone."):
+                if self.on_delete_direct_income:
+                    self.on_delete_direct_income(self._direct_income_transaction)
 
     # ── Expenses content ─────────────────────────────────────────────
 

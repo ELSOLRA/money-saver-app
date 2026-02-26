@@ -60,6 +60,8 @@ class MainController:
         self.view.on_delete_expense_category = self.delete_expense_category
         self.view.on_transfer_to_savings     = self.transfer_to_savings
         self.view.on_add_direct_income       = self.add_direct_income
+        self.view.on_edit_direct_income      = self.edit_direct_income
+        self.view.on_delete_direct_income    = self.delete_direct_income
         self.view.on_edit_income             = self.edit_income
         self.view.on_delete_income           = self.delete_income
 
@@ -86,6 +88,7 @@ class MainController:
         self._update_expenses_foreign_currency_display()
         self._update_transferred_display()
         self._update_income_list()
+        self._update_direct_income_display()
 
     # ── Savings helpers ──────────────────────────────────────────────
 
@@ -180,6 +183,7 @@ class MainController:
         self.expenses_model.clear_category(TRANSFER_OUT_CATEGORY)
         self._update_expenses_summary()
         self._update_transferred_display()
+        self._update_direct_income_display()
         self.view.show_message("Success", "All savings data has been cleared.")
 
     def clear_category(self, category: str):
@@ -424,11 +428,62 @@ class MainController:
         )
         self._update_summary()
         self._update_distributable_balance()
+        self._update_direct_income_display()
 
     def _update_income_list(self):
         self.view.update_income_list(
             self.expenses_model.get_transactions_by_category(SALARY_CATEGORY)
         )
+
+    def _update_direct_income_display(self):
+        txns = [
+            t for t in self.model.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'add' and t.note != '__transfer__'
+        ]
+        self.view.update_direct_income_display(txns)
+
+    def edit_direct_income(self, transaction, new_amount: float, input_currency: str = None):
+        """Edit an Other Income (direct distributable) transaction."""
+        main_currency = self.model.currency
+        if input_currency and input_currency != main_currency:
+            converted = convert_currency(new_amount, input_currency, main_currency)
+            orig_curr, orig_amt = input_currency, new_amount
+        else:
+            converted, orig_curr, orig_amt = new_amount, None, None
+
+        # Guard: new amount must not make the distributable balance go negative
+        distributable = self.model.get_distributable_balance()
+        new_distributable = distributable - transaction.amount + converted
+        if new_distributable < 0:
+            min_allowed = transaction.amount - distributable
+            self.view.show_message(
+                "Cannot Reduce Income",
+                f"This income has already been partially allocated to savings.\n"
+                f"The minimum allowed amount is {format_currency(min_allowed)}.",
+                "warning",
+            )
+            return
+
+        self.model.update_transaction_amount(transaction, converted, orig_amt, orig_curr)
+        self._update_summary()
+        self._update_distributable_balance()
+        self._update_direct_income_display()
+
+    def delete_direct_income(self, transaction):
+        """Delete an Other Income (direct distributable) transaction."""
+        distributable = self.model.get_distributable_balance()
+        if distributable < transaction.amount:
+            self.view.show_message(
+                "Cannot Delete Income",
+                "This income has already been partially allocated to savings.\n"
+                "You can edit the amount, but it cannot be deleted.",
+                "warning",
+            )
+            return
+        self.model.delete_transaction_by_ref(transaction)
+        self._update_summary()
+        self._update_distributable_balance()
+        self._update_direct_income_display()
 
     def _get_total_transferred(self) -> float:
         return sum(
@@ -524,6 +579,7 @@ class MainController:
         self._update_distributable_balance()
         self._update_transferred_display()
         self._update_income_list()
+        self._update_direct_income_display()
 
     def open_rates_dialog(self):
         from utils.config import EXCHANGE_RATES as _defaults
@@ -558,6 +614,7 @@ class MainController:
         self._update_distributable_balance()
         self._update_transferred_display()
         self._update_income_list()
+        self._update_direct_income_display()
 
     def run(self):
         self.root.mainloop()
