@@ -17,6 +17,7 @@ class BudgetButtonPanel(ttk.Frame):
         on_spend_click: Callable[[float, str], None],
         initial_currency: str = 'EUR',
         show_add: bool = True,
+        show_note: bool = False,
         **kwargs
     ):
         super().__init__(parent, **kwargs)
@@ -24,6 +25,7 @@ class BudgetButtonPanel(ttk.Frame):
         self.on_spend_click = on_spend_click
         self._initial_currency = initial_currency
         self.show_add = show_add
+        self.show_note = show_note
         self.add_preset_buttons: list = []
         self.spend_preset_buttons: list = []
         self._create_widgets()
@@ -127,6 +129,12 @@ class BudgetButtonPanel(ttk.Frame):
         self.spend_entry.pack(side='left', padx=PADDING['small'])
         self.spend_entry.bind('<Return>', lambda e: self._on_custom_spend())
 
+        if self.show_note:
+            ttk.Label(spend_custom_frame, text="Note:", font=FONTS['body']).pack(side='left', padx=(PADDING['small'], 0))
+            self.spend_note_entry = ttk.Entry(spend_custom_frame, width=18, font=FONTS['body'])
+            self.spend_note_entry.pack(side='left', padx=PADDING['small'])
+            self.spend_note_entry.bind('<Return>', lambda e: self._on_custom_spend())
+
         spend_btn = tk.Button(
             spend_custom_frame,
             text="Spend",
@@ -162,7 +170,11 @@ class BudgetButtonPanel(ttk.Frame):
         from utils.helpers import parse_amount
         amount = parse_amount(self.spend_entry.get())
         if amount is not None:
-            self.on_spend_click(amount, self.input_currency_var.get())
+            note = ''
+            if self.show_note:
+                note = self.spend_note_entry.get().strip()
+                self.spend_note_entry.delete(0, tk.END)
+            self.on_spend_click(amount, self.input_currency_var.get(), note)
             self.spend_entry.delete(0, tk.END)
 
 
@@ -272,6 +284,16 @@ class TransactionList(ttk.Frame):
             foreground=color
         )
         amount_label.pack(side='left')
+
+        # Note (if present)
+        note = getattr(transaction, 'note', None)
+        if note:
+            ttk.Label(
+                item_frame,
+                text=f"— {note}",
+                font=FONTS['body'],
+                foreground=COLORS['text_secondary'],
+            ).pack(side='left', padx=(PADDING['small'], 0))
 
         # Timestamp
         from datetime import datetime

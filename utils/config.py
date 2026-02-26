@@ -51,7 +51,7 @@ EXCHANGE_RATES = {
 BUDGET_CATEGORIES = ['Transport', 'Travel', 'Entertainment', 'Investment', 'Savings', 'Others']
 
 # Expense categories (separate tracker)
-EXPENSE_CATEGORIES = ['Food & Drink', 'Housing', 'Transport', 'Healthcare', 'Shopping', 'Entertainment', 'Others']
+EXPENSE_CATEGORIES = ['Loans','Housing', 'Transport', 'Healthcare', 'Shopping', 'Entertainment','Others']
 
 # Internal category used for salary / income entries (never shown as a tab)
 SALARY_CATEGORY = '__salary__'

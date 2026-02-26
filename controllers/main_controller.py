@@ -136,7 +136,7 @@ class MainController:
         self._update_foreign_currency_display()
         self._update_distributable_balance()
 
-    def spend_from_budget(self, amount: float, category: str, input_currency: str = None):
+    def spend_from_budget(self, amount: float, category: str, input_currency: str = None, note: str = ''):
         main_currency = self.model.currency
         if input_currency and input_currency != main_currency:
             converted = convert_currency(amount, input_currency, main_currency)
@@ -159,6 +159,7 @@ class MainController:
         transaction = self.model.add_transaction(
             amount=converted, action='spend', category=category,
             original_currency=orig_curr, original_amount=orig_amt,
+            note=note if note else None,
         )
         self.view.update_category(category, self.model.get_category_balance(category), transaction)
         self._update_summary()
@@ -267,7 +268,7 @@ class MainController:
         self._update_expenses_summary()
         self._update_expenses_foreign_currency_display()
 
-    def spend_from_expense(self, amount: float, category: str, input_currency: str = None):
+    def spend_from_expense(self, amount: float, category: str, input_currency: str = None, note: str = ''):
         main_currency = self.expenses_model.currency
         if input_currency and input_currency != main_currency:
             converted = convert_currency(amount, input_currency, main_currency)
@@ -290,6 +291,7 @@ class MainController:
         transaction = self.expenses_model.add_transaction(
             amount=converted, action='spend', category=category,
             original_currency=orig_curr, original_amount=orig_amt,
+            note=note if note else None,
         )
         # Show total spent in this category (positive number)
         spent = sum(

@@ -221,7 +221,7 @@ class MainView:
 
         # Left: balance display
         tk.Label(
-            bar, text="💼 Available to Allocate:",
+            bar, text="Available to Allocate:",
             font=FONTS['heading'], bg='#eafaf1', fg=COLORS['text_primary'],
         ).pack(side='left', padx=(PADDING['medium'], PADDING['small']))
 
@@ -263,7 +263,7 @@ class MainView:
         self._direct_income_entry.bind('<Return>', lambda e: self._on_add_direct_income_click())
 
         tk.Label(
-            bar, text="💰 Other Income:",
+            bar, text="Other Income:",
             font=FONTS['body'], bg='#eafaf1', fg=COLORS['text_primary'],
         ).pack(side='right', padx=(PADDING['large'], PADDING['small']))
 
@@ -294,8 +294,9 @@ class MainView:
         BudgetButtonPanel(
             left_panel,
             on_add_click=lambda amt, cur: self._on_add_click(amt, category_name, cur),
-            on_spend_click=lambda amt, cur: self._on_spend_click(amt, category_name, cur),
+            on_spend_click=lambda amt, cur, note='': self._on_spend_click(amt, category_name, cur, note),
             initial_currency=self.currency_var.get(),
+            show_note=True,
         ).pack(fill='x')
 
         balance_frame = ttk.Frame(left_panel)
@@ -310,7 +311,7 @@ class MainView:
         avail_row = ttk.Frame(left_panel)
         avail_row.pack(fill='x', pady=(0, PADDING['small']))
         ttk.Label(
-            avail_row, text="💼 Available to allocate:",
+            avail_row, text="Available to allocate:",
             font=FONTS['body'], foreground=COLORS['text_secondary'],
         ).pack(side='left')
         available_label = ttk.Label(
@@ -400,7 +401,7 @@ class MainView:
         )
         self._transferred_label.pack(side='right', padx=(0, PADDING['medium']))
         tk.Label(
-            bar, text="📤 Total sent to Savings:",
+            bar, text="Total sent to Savings:",
             font=FONTS['body'], bg='#d6eaf8', fg=COLORS['text_secondary'],
         ).pack(side='right')
 
@@ -541,9 +542,10 @@ class MainView:
         BudgetButtonPanel(
             left_panel,
             on_add_click=None,
-            on_spend_click=lambda amt, cur: self._on_spend_expense_click(amt, category_name, cur),
+            on_spend_click=lambda amt, cur, note='': self._on_spend_expense_click(amt, category_name, cur, note),
             initial_currency=self.currency_var.get(),
             show_add=False,
+            show_note=True,
         ).pack(fill='x')
 
         balance_frame = ttk.Frame(left_panel)
@@ -617,9 +619,9 @@ class MainView:
         if self.on_add_budget:
             self.on_add_budget(amount, category, currency)
 
-    def _on_spend_click(self, amount: float, category: str, currency: str):
+    def _on_spend_click(self, amount: float, category: str, currency: str, note: str = ''):
         if self.on_spend_budget:
-            self.on_spend_budget(amount, category, currency)
+            self.on_spend_budget(amount, category, currency, note)
 
     def _on_clear_click(self):
         if messagebox.askyesno("Confirm Clear", "Clear all savings data?\nThis cannot be undone."):
@@ -670,9 +672,9 @@ class MainView:
         if self.on_add_expense:
             self.on_add_expense(amount, category, currency)
 
-    def _on_spend_expense_click(self, amount: float, category: str, currency: str):
+    def _on_spend_expense_click(self, amount: float, category: str, currency: str, note: str = ''):
         if self.on_spend_expense:
-            self.on_spend_expense(amount, category, currency)
+            self.on_spend_expense(amount, category, currency, note)
 
     def _on_clear_expense_click(self):
         if messagebox.askyesno("Confirm Clear", "Clear all expenses data?\nThis cannot be undone."):
