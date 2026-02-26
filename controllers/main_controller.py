@@ -72,6 +72,7 @@ class MainController:
         self.view.on_delete_savings_transaction = self.delete_savings_transaction
         self.view.on_edit_expense_transaction   = self.edit_expense_transaction
         self.view.on_delete_expense_transaction = self.delete_expense_transaction
+        self.view.on_return_to_expenses         = self.return_to_expenses
 
     def _initialize_view(self):
         self.view.set_currency(self.model.currency)
@@ -250,8 +251,8 @@ class MainController:
     def _update_expenses_summary(self):
         self.view.update_expenses_summary(
             self.expenses_model.get_total_budget(),
-            self.expenses_model.get_total_added(),
-            self.expenses_model.get_total_spent(),
+            self.expenses_model.get_total_added(exclude_categories=[TRANSFER_OUT_CATEGORY]),
+            self.expenses_model.get_total_spent(exclude_categories=[TRANSFER_OUT_CATEGORY]),
         )
 
     def _update_all_expense_category_balances(self):
@@ -331,6 +332,7 @@ class MainController:
         self._update_transferred_display()
         self._update_income_list()
         self.model.clear_category_tagged(DISTRIBUTABLE_CATEGORY, '__transfer__')
+        self.model.clear_category_tagged(DISTRIBUTABLE_CATEGORY, '__transfer_back__')
         self._update_distributable_balance()
         self.view.show_message("Success", "All expenses data has been cleared.")
 
@@ -423,6 +425,59 @@ class MainController:
         self._update_summary()
         self._update_distributable_balance()
         self._update_transferred_display()
+        self.view.show_message("Transfer Complete", f"{format_currency(converted)} transferred to Savings.")
+
+    def return_to_expenses(self, amount: float, input_currency: str = None):
+        """Return money from the Savings distributable pool back to the Expenses pot."""
+        main_currency = self.model.currency
+        if input_currency and input_currency != main_currency:
+            converted = convert_currency(amount, input_currency, main_currency)
+            orig_curr, orig_amt = input_currency, amount
+        else:
+            converted, orig_curr, orig_amt = amount, None, None
+
+        distributable = self.model.get_distributable_balance()
+
+        # Cap at net amount actually transferred from expenses (exclude Other Income)
+        net_transferred = sum(
+            t.amount for t in self.model.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'add' and t.note == '__transfer__'
+        ) - sum(
+            t.amount for t in self.model.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'spend' and t.note == '__transfer_back__'
+        )
+        max_returnable = min(distributable, net_transferred)
+
+        if max_returnable <= 0:
+            self.view.show_message("Cannot Return", "No transfers from Expenses are available to return.", "warning")
+            return
+
+        # Clamp to the maximum returnable amount
+        clamped = converted > max_returnable
+        if clamped:
+            converted = max_returnable
+            if orig_amt is not None:
+                orig_amt = max_returnable
+
+        self.model.add_transaction(
+            amount=converted, action='spend', category=DISTRIBUTABLE_CATEGORY,
+            original_currency=orig_curr, original_amount=orig_amt,
+            note='__transfer_back__',
+        )
+        self.expenses_model.add_transaction(
+            amount=converted, action='add', category=TRANSFER_OUT_CATEGORY,
+            original_currency=orig_curr, original_amount=orig_amt,
+            note='__transfer_back__',
+        )
+
+        self._update_summary()
+        self._update_distributable_balance()
+        self._update_expenses_summary()
+        self._update_transferred_display()
+        msg = f"{format_currency(converted)} returned to Expenses."
+        if clamped:
+            msg += f"\n(Amount reduced to {format_currency(converted)} — only this much was originally transferred from Expenses.)"
+        self.view.show_message("Return Complete", msg)
 
     def add_direct_income(self, amount: float, input_currency: str = None):
         """Add income directly into the savings distributable pool (no expenses debit)."""
@@ -643,15 +698,33 @@ class MainController:
         self.view.update_expense_category(category, spent)
         self.view.refresh_expense_transactions(category, self.expenses_model.get_transactions_by_category(category))
 
+    def _get_net_transferred(self) -> float:
+        """Net amount transferred from Expenses to Savings (excluding Other Income, minus returns)."""
+        sent = sum(
+            t.amount for t in self.model.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'add' and t.note == '__transfer__'
+        )
+        returned = sum(
+            t.amount for t in self.model.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'spend' and t.note == '__transfer_back__'
+        )
+        return sent - returned
+
     def _update_distributable_balance(self):
-        self.view.update_distributable_balance(self.model.get_distributable_balance())
+        distributable = self.model.get_distributable_balance()
+        net_transferred = self._get_net_transferred()
+        self.view.update_distributable_balance(distributable, net_transferred)
 
     def _update_transferred_display(self):
-        total = sum(
+        sent = sum(
             t.amount for t in self.expenses_model.transactions
             if t.category == TRANSFER_OUT_CATEGORY and t.action == 'spend'
         )
-        self.view.update_transferred_display(total)
+        returned = sum(
+            t.amount for t in self.expenses_model.transactions
+            if t.category == TRANSFER_OUT_CATEGORY and t.action == 'add'
+        )
+        self.view.update_transferred_display(sent - returned)
 
     # ── Currency / Rates (affect both models) ────────────────────────
 

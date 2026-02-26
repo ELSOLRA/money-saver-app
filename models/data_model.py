@@ -292,8 +292,12 @@ class DataModel:
             t.amount for t in self.transactions
             if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'add'
         )
+        returned = sum(
+            t.amount for t in self.transactions
+            if t.category == DISTRIBUTABLE_CATEGORY and t.action == 'spend'
+        )
         allocated = sum(
             t.amount for t in self.transactions
             if t.category != DISTRIBUTABLE_CATEGORY and t.action == 'add'
         )
-        return transferred - allocated
+        return transferred - returned - allocated

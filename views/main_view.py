@@ -54,6 +54,7 @@ class MainView:
         self.on_delete_savings_transaction: Optional[Callable] = None
         self.on_edit_expense_transaction:   Optional[Callable] = None
         self.on_delete_expense_transaction: Optional[Callable] = None
+        self.on_return_to_expenses:         Optional[Callable] = None
 
         self._create_widgets()
 
@@ -242,6 +243,16 @@ class MainView:
             font=FONTS['heading'], bg='#eafaf1', fg=COLORS['text_secondary'],
         )
         self._distributable_label.pack(side='left')
+
+        self._return_to_expenses_btn = tk.Button(
+            bar, text="↩ Return to Expenses",
+            font=FONTS['body'],
+            bg='#5dade2', fg='white',
+            activebackground='#2e86c1', activeforeground='white',
+            relief='flat', cursor='hand2', state='disabled',
+            command=self._on_return_to_expenses_click,
+        )
+        self._return_to_expenses_btn.pack(side='left', padx=(PADDING['large'], 0))
 
         # Right: Other Income input + Add / Edit / Delete (packed right-to-left)
         self._direct_income_transaction = None
@@ -692,6 +703,61 @@ class MainView:
                 if self.on_delete_direct_income:
                     self.on_delete_direct_income(self._direct_income_transaction)
 
+    # ── Return to Expenses ───────────────────────────────────────────
+
+    def _on_return_to_expenses_click(self):
+        from utils.config import CURRENCIES
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Return to Expenses")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        w, h = 340, 155
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width()  - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        frame = ttk.Frame(dialog, padding=PADDING['large'])
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text="Return Amount to Expenses", font=FONTS['heading']).pack(anchor='w', pady=(0, PADDING['medium']))
+
+        input_row = ttk.Frame(frame)
+        input_row.pack(fill='x', pady=PADDING['small'])
+        ttk.Label(input_row, text="Amount:", font=FONTS['body']).pack(side='left')
+        amount_entry = ttk.Entry(input_row, width=14, font=FONTS['body'])
+        amount_entry.pack(side='left', padx=PADDING['small'])
+        amount_entry.focus_set()
+        currency_var = tk.StringVar(value=self.currency_var.get())
+        ttk.Combobox(
+            input_row, textvariable=currency_var,
+            values=list(CURRENCIES.keys()), state='readonly', width=5, font=FONTS['body'],
+        ).pack(side='left', padx=PADDING['small'])
+
+        def _save():
+            from utils.helpers import parse_amount
+            amt = parse_amount(amount_entry.get())
+            if amt is None:
+                self.show_message("Error", "Please enter a valid amount.", "error")
+                return
+            if self.on_return_to_expenses:
+                self.on_return_to_expenses(amt, currency_var.get())
+            dialog.destroy()
+
+        amount_entry.bind('<Return>', lambda e: _save())
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill='x', pady=(PADDING['medium'], 0))
+        tk.Button(
+            btn_row, text="Cancel", font=FONTS['body'],
+            bg=COLORS['text_secondary'], fg='white', relief='flat', cursor='hand2',
+            command=dialog.destroy,
+        ).pack(side='right', padx=(PADDING['small'], 0))
+        tk.Button(
+            btn_row, text="Return →", font=FONTS['button'],
+            bg='#2980b9', fg='white', relief='flat', cursor='hand2',
+            command=_save,
+        ).pack(side='right')
+
     # ── Transaction edit / delete ────────────────────────────────────
 
     def _on_edit_transaction_click(self, transaction, category, is_expense=False):
@@ -1126,7 +1192,7 @@ class MainView:
         if tab and 'button_panel' in tab:
             tab['button_panel'].update_preset_notes(notes)
 
-    def update_distributable_balance(self, amount: float):
+    def update_distributable_balance(self, amount: float, net_transferred: float = 0):
         """Update the 'Available to Allocate' banner and all per-tab labels."""
         if amount > 0:
             color = COLORS['add']
@@ -1136,6 +1202,8 @@ class MainView:
             color = COLORS['text_secondary']
         label_text = format_currency(amount)
         self._distributable_label.config(text=label_text, fg=color)
+        can_return = amount > 0 and net_transferred > 0
+        self._return_to_expenses_btn.config(state='normal' if can_return else 'disabled')
         for tab_data in self.category_tabs.values():
             if 'available_label' in tab_data:
                 tab_data['available_label'].config(text=label_text, foreground=color)
