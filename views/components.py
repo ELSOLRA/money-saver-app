@@ -18,6 +18,9 @@ class BudgetButtonPanel(ttk.Frame):
         initial_currency: str = 'EUR',
         show_add: bool = True,
         show_note: bool = False,
+        preset_notes: Optional[List] = None,
+        on_add_preset_note: Optional[Callable] = None,
+        on_remove_preset_note: Optional[Callable] = None,
         **kwargs
     ):
         super().__init__(parent, **kwargs)
@@ -26,6 +29,10 @@ class BudgetButtonPanel(ttk.Frame):
         self._initial_currency = initial_currency
         self.show_add = show_add
         self.show_note = show_note
+        self.preset_notes: list = list(preset_notes or [])
+        self.on_add_preset_note = on_add_preset_note
+        self.on_remove_preset_note = on_remove_preset_note
+        self._note_presets_frame = None
         self.add_preset_buttons: list = []
         self.spend_preset_buttons: list = []
         self._create_widgets()
@@ -131,9 +138,12 @@ class BudgetButtonPanel(ttk.Frame):
 
         if self.show_note:
             ttk.Label(spend_custom_frame, text="Note:", font=FONTS['body']).pack(side='left', padx=(PADDING['small'], 0))
-            self.spend_note_entry = ttk.Entry(spend_custom_frame, width=18, font=FONTS['body'])
+            self.spend_note_entry = ttk.Combobox(spend_custom_frame, width=18, font=FONTS['body'])
+            self.spend_note_entry['values'] = self.preset_notes
             self.spend_note_entry.pack(side='left', padx=PADDING['small'])
             self.spend_note_entry.bind('<Return>', lambda e: self._on_custom_spend())
+            self.spend_note_entry.bind('<KeyRelease>', self._on_note_key_release)
+            self.spend_note_entry.bind('<Button-3>', self._on_note_combobox_right_click)
 
         spend_btn = tk.Button(
             spend_custom_frame,
@@ -173,9 +183,48 @@ class BudgetButtonPanel(ttk.Frame):
             note = ''
             if self.show_note:
                 note = self.spend_note_entry.get().strip()
-                self.spend_note_entry.delete(0, tk.END)
+                self.spend_note_entry.set('')
+                if note and note not in self.preset_notes and self.on_add_preset_note:
+                    self.on_add_preset_note(note)
             self.on_spend_click(amount, self.input_currency_var.get(), note)
             self.spend_entry.delete(0, tk.END)
+
+    # ── Note preset management ───────────────────────────────────────
+
+    def _rebuild_note_presets(self):
+        pass
+
+    def _fill_note(self, note: str):
+        """Fill the note entry with the clicked preset text."""
+        if hasattr(self, 'spend_note_entry'):
+            self.spend_note_entry.set(note)
+
+    def _on_note_combobox_right_click(self, event):
+        """Show context menu listing all presets with remove options."""
+        if not self.preset_notes or not self.on_remove_preset_note:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        for note in self.preset_notes:
+            menu.add_command(
+                label=f'Remove "{note}"',
+                command=lambda n=note: self.on_remove_preset_note(n),
+            )
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def update_preset_notes(self, notes: List):
+        """Update the preset notes list and rebuild the buttons."""
+        self.preset_notes = list(notes)
+        self._rebuild_note_presets()
+        if hasattr(self, 'spend_note_entry'):
+            self.spend_note_entry['values'] = self.preset_notes
+
+    def _on_note_key_release(self, event):
+        """Filter combobox dropdown as the user types."""
+        if event.keysym in ('Return', 'Escape', 'Tab'):
+            return
+        typed = self.spend_note_entry.get().strip().lower()
+        filtered = [n for n in self.preset_notes if typed in n.lower()] if typed else list(self.preset_notes)
+        self.spend_note_entry['values'] = filtered
 
 
 class SummaryCard(ttk.Frame):

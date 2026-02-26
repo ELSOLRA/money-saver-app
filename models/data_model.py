@@ -38,6 +38,7 @@ class DataModel:
         self.categories = categories or []
         self.currency: str = DEFAULT_CURRENCY
         self.exchange_rates: dict = dict(_DEFAULT_RATES)
+        self.preset_notes: Dict[str, List[str]] = {}
         self._load_data()
 
     def _load_data(self) -> None:
@@ -62,6 +63,7 @@ class DataModel:
                         self.categories.append(cat)
                 self.currency = data.get('currency', DEFAULT_CURRENCY)
                 self.exchange_rates = data.get('exchange_rates', dict(_DEFAULT_RATES))
+                self.preset_notes = data.get('preset_notes', {})
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Error loading data: {e}. Starting with empty data.")
                 self.transactions = []
@@ -73,6 +75,7 @@ class DataModel:
             'categories': self.categories,
             'currency': self.currency,
             'exchange_rates': self.exchange_rates,
+            'preset_notes': self.preset_notes,
             'last_updated': datetime.now().isoformat()
         }
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -184,7 +187,30 @@ class DataModel:
         self.transactions = [t for t in self.transactions if t.category != category]
         if category in self.categories:
             self.categories.remove(category)
+        self.preset_notes.pop(category, None)
         self.save_data()
+
+    def get_preset_notes(self, category: str) -> List[str]:
+        """Return the list of preset note strings for a category."""
+        return list(self.preset_notes.get(category, []))
+
+    def add_preset_note(self, category: str, note: str) -> bool:
+        """Add a preset note to a category. Returns False if already exists."""
+        notes = self.preset_notes.setdefault(category, [])
+        if note in notes:
+            return False
+        notes.append(note)
+        self.save_data()
+        return True
+
+    def remove_preset_note(self, category: str, note: str) -> bool:
+        """Remove a preset note from a category. Returns False if not found."""
+        notes = self.preset_notes.get(category, [])
+        if note in notes:
+            notes.remove(note)
+            self.save_data()
+            return True
+        return False
 
     def get_foreign_currency_totals(self) -> Dict[str, Dict[str, float]]:
         """Get added/spent totals for each non-main currency used as input."""

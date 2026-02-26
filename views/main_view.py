@@ -46,6 +46,10 @@ class MainView:
         self.on_delete_direct_income:    Optional[Callable] = None
         self.on_edit_income:             Optional[Callable] = None
         self.on_delete_income:           Optional[Callable] = None
+        self.on_add_savings_note_preset:    Optional[Callable] = None
+        self.on_remove_savings_note_preset: Optional[Callable] = None
+        self.on_add_expense_note_preset:    Optional[Callable] = None
+        self.on_remove_expense_note_preset: Optional[Callable] = None
 
         self._create_widgets()
 
@@ -305,7 +309,7 @@ class MainView:
         )
         self.add_tab_index = self.notebook.index('end') - 1
 
-    def add_category_tab(self, category_name: str, transactions: list, insert_before_plus: bool = False):
+    def add_category_tab(self, category_name: str, transactions: list, insert_before_plus: bool = False, preset_notes: list = None):
         """Add a new savings category tab to the notebook."""
         tab_frame = ttk.Frame(self.notebook, padding=PADDING['medium'])
         if insert_before_plus and hasattr(self, 'add_tab_index'):
@@ -317,13 +321,17 @@ class MainView:
         left_panel = ttk.Frame(tab_frame)
         left_panel.pack(side='left', fill='y', padx=(0, PADDING['large']))
 
-        BudgetButtonPanel(
+        panel = BudgetButtonPanel(
             left_panel,
             on_add_click=lambda amt, cur: self._on_add_click(amt, category_name, cur),
             on_spend_click=lambda amt, cur, note='': self._on_spend_click(amt, category_name, cur, note),
             initial_currency=self.currency_var.get(),
             show_note=True,
-        ).pack(fill='x')
+            preset_notes=preset_notes or [],
+            on_add_preset_note=lambda note: self._on_add_savings_note_preset(category_name, note),
+            on_remove_preset_note=lambda note: self._on_remove_savings_note_preset(category_name, note),
+        )
+        panel.pack(fill='x')
 
         balance_frame = ttk.Frame(left_panel)
         balance_frame.pack(fill='x', pady=PADDING['large'])
@@ -375,6 +383,7 @@ class MainView:
             'balance_label': balance_label,
             'available_label': available_label,
             'transaction_list': tx_list,
+            'button_panel': panel,
         }
 
     # ── Transfer to Savings bar ──────────────────────────────────────
@@ -730,7 +739,7 @@ class MainView:
         )
         self.exp_add_tab_index = self.expenses_notebook.index('end') - 1
 
-    def add_expense_category_tab(self, category_name: str, transactions: list, insert_before_plus: bool = False):
+    def add_expense_category_tab(self, category_name: str, transactions: list, insert_before_plus: bool = False, preset_notes: list = None):
         """Add a new expense category tab to the expenses notebook."""
         tab_frame = ttk.Frame(self.expenses_notebook, padding=PADDING['medium'])
         if insert_before_plus and hasattr(self, 'exp_add_tab_index'):
@@ -742,14 +751,18 @@ class MainView:
         left_panel = ttk.Frame(tab_frame)
         left_panel.pack(side='left', fill='y', padx=(0, PADDING['large']))
 
-        BudgetButtonPanel(
+        exp_panel = BudgetButtonPanel(
             left_panel,
             on_add_click=None,
             on_spend_click=lambda amt, cur, note='': self._on_spend_expense_click(amt, category_name, cur, note),
             initial_currency=self.currency_var.get(),
             show_add=False,
             show_note=True,
-        ).pack(fill='x')
+            preset_notes=preset_notes or [],
+            on_add_preset_note=lambda note: self._on_add_expense_note_preset(category_name, note),
+            on_remove_preset_note=lambda note: self._on_remove_expense_note_preset(category_name, note),
+        )
+        exp_panel.pack(fill='x')
 
         balance_frame = ttk.Frame(left_panel)
         balance_frame.pack(fill='x', pady=PADDING['large'])
@@ -788,6 +801,7 @@ class MainView:
             'frame': tab_frame,
             'balance_label': balance_label,
             'transaction_list': tx_list,
+            'button_panel': exp_panel,
         }
 
     # ── Shared helper ────────────────────────────────────────────────
@@ -869,6 +883,14 @@ class MainView:
             if success:
                 self.new_category_entry.delete(0, tk.END)
 
+    def _on_add_savings_note_preset(self, category: str, note: str):
+        if self.on_add_savings_note_preset:
+            self.on_add_savings_note_preset(category, note)
+
+    def _on_remove_savings_note_preset(self, category: str, note: str):
+        if self.on_remove_savings_note_preset:
+            self.on_remove_savings_note_preset(category, note)
+
     # ── Expenses event handlers ──────────────────────────────────────
 
     def _on_add_expense_click(self, amount: float, category: str, currency: str):
@@ -910,6 +932,14 @@ class MainView:
             success = self.on_create_expense_category(name)
             if success:
                 self.new_expense_category_entry.delete(0, tk.END)
+
+    def _on_add_expense_note_preset(self, category: str, note: str):
+        if self.on_add_expense_note_preset:
+            self.on_add_expense_note_preset(category, note)
+
+    def _on_remove_expense_note_preset(self, category: str, note: str):
+        if self.on_remove_expense_note_preset:
+            self.on_remove_expense_note_preset(category, note)
 
     # ── Shared event handlers ────────────────────────────────────────
 
@@ -983,6 +1013,18 @@ class MainView:
         del self.category_tabs[category_name]
         if hasattr(self, 'add_tab_index'):
             self.add_tab_index -= 1
+
+    def refresh_category_note_presets(self, category: str, notes: list):
+        """Rebuild the note preset buttons for a savings category tab."""
+        tab = self.category_tabs.get(category)
+        if tab and 'button_panel' in tab:
+            tab['button_panel'].update_preset_notes(notes)
+
+    def refresh_expense_category_note_presets(self, category: str, notes: list):
+        """Rebuild the note preset buttons for an expense category tab."""
+        tab = self.expenses_category_tabs.get(category)
+        if tab and 'button_panel' in tab:
+            tab['button_panel'].update_preset_notes(notes)
 
     def update_distributable_balance(self, amount: float):
         """Update the 'Available to Allocate' banner and all per-tab labels."""

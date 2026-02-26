@@ -64,6 +64,10 @@ class MainController:
         self.view.on_delete_direct_income    = self.delete_direct_income
         self.view.on_edit_income             = self.edit_income
         self.view.on_delete_income           = self.delete_income
+        self.view.on_add_savings_note_preset    = self.add_savings_note_preset
+        self.view.on_remove_savings_note_preset = self.remove_savings_note_preset
+        self.view.on_add_expense_note_preset    = self.add_expense_note_preset
+        self.view.on_remove_expense_note_preset = self.remove_expense_note_preset
 
     def _initialize_view(self):
         self.view.set_currency(self.model.currency)
@@ -71,7 +75,8 @@ class MainController:
         # ── Savings tabs ─────────────────────────────────────────────
         for category in self.model.categories:
             transactions = self.model.get_transactions_by_category(category)
-            self.view.add_category_tab(category, transactions)
+            presets = self.model.get_preset_notes(category)
+            self.view.add_category_tab(category, transactions, preset_notes=presets)
         self.view.add_new_category_tab()
         self._update_summary()
         self._update_all_category_balances()
@@ -81,7 +86,8 @@ class MainController:
         # ── Expenses tabs ────────────────────────────────────────────
         for category in self.expenses_model.categories:
             transactions = self.expenses_model.get_transactions_by_category(category)
-            self.view.add_expense_category_tab(category, transactions)
+            presets = self.expenses_model.get_preset_notes(category)
+            self.view.add_expense_category_tab(category, transactions, preset_notes=presets)
         self.view.add_new_expense_category_tab()
         self._update_expenses_summary()
         self._update_all_expense_category_balances()
@@ -484,6 +490,24 @@ class MainController:
         self._update_summary()
         self._update_distributable_balance()
         self._update_direct_income_display()
+
+    # ── Note preset management ───────────────────────────────────────
+
+    def add_savings_note_preset(self, category: str, note: str):
+        self.model.add_preset_note(category, note)
+        self.view.refresh_category_note_presets(category, self.model.get_preset_notes(category))
+
+    def remove_savings_note_preset(self, category: str, note: str):
+        self.model.remove_preset_note(category, note)
+        self.view.refresh_category_note_presets(category, self.model.get_preset_notes(category))
+
+    def add_expense_note_preset(self, category: str, note: str):
+        self.expenses_model.add_preset_note(category, note)
+        self.view.refresh_expense_category_note_presets(category, self.expenses_model.get_preset_notes(category))
+
+    def remove_expense_note_preset(self, category: str, note: str):
+        self.expenses_model.remove_preset_note(category, note)
+        self.view.refresh_expense_category_note_presets(category, self.expenses_model.get_preset_notes(category))
 
     def _get_total_transferred(self) -> float:
         return sum(
