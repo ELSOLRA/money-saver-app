@@ -60,6 +60,8 @@ class MainController:
         self.view.on_delete_expense_category = self.delete_expense_category
         self.view.on_transfer_to_savings     = self.transfer_to_savings
         self.view.on_add_direct_income       = self.add_direct_income
+        self.view.on_edit_income             = self.edit_income
+        self.view.on_delete_income           = self.delete_income
 
     def _initialize_view(self):
         self.view.set_currency(self.model.currency)
@@ -83,6 +85,7 @@ class MainController:
         self._update_all_expense_category_balances()
         self._update_expenses_foreign_currency_display()
         self._update_transferred_display()
+        self._update_income_list()
 
     # ── Savings helpers ──────────────────────────────────────────────
 
@@ -267,6 +270,8 @@ class MainController:
         # Income goes to the central pot — no category tab to update
         self._update_expenses_summary()
         self._update_expenses_foreign_currency_display()
+        if category == SALARY_CATEGORY:
+            self._update_income_list()
 
     def spend_from_expense(self, amount: float, category: str, input_currency: str = None, note: str = ''):
         main_currency = self.expenses_model.currency
@@ -310,6 +315,9 @@ class MainController:
         self._update_expenses_summary()
         self._update_expenses_foreign_currency_display()
         self._update_transferred_display()
+        self._update_income_list()
+        self.model.clear_category_tagged(DISTRIBUTABLE_CATEGORY, '__transfer__')
+        self._update_distributable_balance()
         self.view.show_message("Success", "All expenses data has been cleared.")
 
     def clear_expense_category(self, category: str):
@@ -390,10 +398,11 @@ class MainController:
             amount=converted, action='spend', category=TRANSFER_OUT_CATEGORY,
             original_currency=orig_curr, original_amount=orig_amt,
         )
-        # Credit the savings model (adds to distributable pool)
+
         self.model.add_transaction(
             amount=converted, action='add', category=DISTRIBUTABLE_CATEGORY,
             original_currency=orig_curr, original_amount=orig_amt,
+            note='__transfer__',
         )
 
         self._update_expenses_summary()
@@ -415,6 +424,55 @@ class MainController:
         )
         self._update_summary()
         self._update_distributable_balance()
+
+    def _update_income_list(self):
+        self.view.update_income_list(
+            self.expenses_model.get_transactions_by_category(SALARY_CATEGORY)
+        )
+
+    def _get_total_transferred(self) -> float:
+        return sum(
+            t.amount for t in self.expenses_model.transactions
+            if t.category == TRANSFER_OUT_CATEGORY and t.action == 'spend'
+        )
+
+    def edit_income(self, transaction, new_amount: float, input_currency: str = None):
+        main_currency = self.expenses_model.currency
+        if input_currency and input_currency != main_currency:
+            converted = convert_currency(new_amount, input_currency, main_currency)
+            orig_curr, orig_amt = input_currency, new_amount
+        else:
+            converted, orig_curr, orig_amt = new_amount, None, None
+
+        total_transferred = self._get_total_transferred()
+        if total_transferred > 0 and converted < total_transferred:
+            self.view.show_message(
+                "Cannot Reduce Income",
+                f"{format_currency(total_transferred)} has already been transferred to Savings.\n"
+                f"The income amount cannot be less than {format_currency(total_transferred)}.",
+                "warning",
+            )
+            return
+
+        self.expenses_model.update_transaction_amount(transaction, converted, orig_amt, orig_curr)
+        self._update_expenses_summary()
+        self._update_expenses_foreign_currency_display()
+        self._update_income_list()
+
+    def delete_income(self, transaction):
+        total_transferred = self._get_total_transferred()
+        if total_transferred > 0:
+            self.view.show_message(
+                "Cannot Delete Income",
+                f"{format_currency(total_transferred)} has already been transferred to Savings.\n"
+                "You can edit the income amount, but it cannot be deleted while a transfer exists.",
+                "warning",
+            )
+            return
+        self.expenses_model.delete_transaction_by_ref(transaction)
+        self._update_expenses_summary()
+        self._update_expenses_foreign_currency_display()
+        self._update_income_list()
 
     def _update_distributable_balance(self):
         self.view.update_distributable_balance(self.model.get_distributable_balance())
@@ -465,6 +523,7 @@ class MainController:
         self._update_expenses_foreign_currency_display()
         self._update_distributable_balance()
         self._update_transferred_display()
+        self._update_income_list()
 
     def open_rates_dialog(self):
         from utils.config import EXCHANGE_RATES as _defaults
@@ -498,6 +557,7 @@ class MainController:
         self._update_expenses_foreign_currency_display()
         self._update_distributable_balance()
         self._update_transferred_display()
+        self._update_income_list()
 
     def run(self):
         self.root.mainloop()

@@ -225,6 +225,36 @@ class DataModel:
         self.currency = currency_code
         self.save_data()
 
+    def delete_transaction_by_ref(self, transaction: 'Transaction') -> bool:
+        """Delete a specific transaction by object reference. Returns True if found."""
+        try:
+            self.transactions.remove(transaction)
+            self.save_data()
+            return True
+        except ValueError:
+            return False
+
+    def clear_category_tagged(self, category: str, tag: str) -> None:
+        """Remove only transactions in category whose note matches tag."""
+        self.transactions = [
+            t for t in self.transactions
+            if not (t.category == category and t.note == tag)
+        ]
+        self.save_data()
+
+    def update_transaction_amount(
+        self,
+        transaction: 'Transaction',
+        new_amount: float,
+        new_original_amount: Optional[float] = None,
+        new_original_currency: Optional[str] = None,
+    ) -> None:
+        """Update the amount fields of an existing transaction in-place."""
+        transaction.amount = new_amount
+        transaction.original_amount = new_original_amount
+        transaction.original_currency = new_original_currency
+        self.save_data()
+
     def get_distributable_balance(self) -> float:
         """
         Money received via transfers from expenses minus money already
