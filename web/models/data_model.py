@@ -55,9 +55,10 @@ class Transaction:
 class DataModel:
     """Manages all budget data — backed by Supabase."""
 
-    def __init__(self, data_file: str = 'savings_data.json', categories: List[str] = None):
+    def __init__(self, data_file: str = 'savings_data.json', categories: List[str] = None, user_id: str = ''):
         self.model_type = 'expenses' if 'expense' in str(data_file).lower() else 'savings'
-        self.data_file = data_file  
+        self.data_file = data_file
+        self.user_id = user_id
 
         self.transactions: List[Transaction] = []
         self.categories: List[str] = list(categories or [])
@@ -76,6 +77,7 @@ class DataModel:
         res = (
             self._sb.table('settings')
             .select('*')
+            .eq('user_id', self.user_id)
             .eq('model_type', self.model_type)
             .execute()
         )
@@ -92,6 +94,7 @@ class DataModel:
         res = (
             self._sb.table('transactions')
             .select('*')
+            .eq('user_id', self.user_id)
             .eq('model_type', self.model_type)
             .order('timestamp')
             .execute()
@@ -101,6 +104,7 @@ class DataModel:
     def _save_settings(self) -> None:
         """Persist settings (currency, categories, exchange rates, preset notes)."""
         self._sb.table('settings').upsert({
+            'user_id':        self.user_id,
             'model_type':     self.model_type,
             'currency':       self.currency,
             'exchange_rates': self.exchange_rates,
@@ -124,6 +128,7 @@ class DataModel:
         original_amount: Optional[float] = None,
     ) -> 'Transaction':
         row = {
+            'user_id':           self.user_id,
             'model_type':        self.model_type,
             'amount':            amount,
             'action':            action,
@@ -170,12 +175,18 @@ class DataModel:
             }).eq('id', transaction.id).execute()
 
     def clear_all_data(self) -> None:
-        self._sb.table('transactions').delete().eq('model_type', self.model_type).execute()
+        (
+            self._sb.table('transactions').delete()
+            .eq('user_id', self.user_id)
+            .eq('model_type', self.model_type)
+            .execute()
+        )
         self.transactions = []
 
     def clear_category(self, category: str) -> None:
         (
             self._sb.table('transactions').delete()
+            .eq('user_id', self.user_id)
             .eq('model_type', self.model_type)
             .eq('category', category)
             .execute()
@@ -185,6 +196,7 @@ class DataModel:
     def clear_category_tagged(self, category: str, tag: str) -> None:
         (
             self._sb.table('transactions').delete()
+            .eq('user_id', self.user_id)
             .eq('model_type', self.model_type)
             .eq('category', category)
             .eq('note', tag)

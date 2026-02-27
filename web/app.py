@@ -4,7 +4,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import streamlit as st
+from supabase import create_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -25,14 +27,122 @@ from utils.helpers import (
 # ── Page config ───────────────────────────────────────────────────
 st.set_page_config(page_title="Budget Saver", page_icon="💰", layout="wide")
 
-# ── Load models once, shared across reruns ────────────────────────
+
+# ── Email / password auth ─────────────────────────────────────────
+def _handle_auth() -> None:
+    """Show login/signup/reset form. Calls st.stop() if not signed in."""
+    if "user_id" in st.session_state:
+        return
+
+    sb = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+    # ── Password reset callback (user clicked link in email) ──────
+
+    token_hash = st.query_params.get("token_hash")
+    if token_hash and st.query_params.get("type") == "recovery":
+        st.session_state["reset_token"] = token_hash
+        st.query_params.clear()
+        st.rerun()
+
+    if st.session_state.get("reset_token"):
+        reset_token = st.session_state["reset_token"]
+        _, col, _ = st.columns([1, 2, 1])
+        with col:
+            st.title("💰 Budget Saver")
+            st.subheader("Set new password")
+            new_pw  = st.text_input("New password", type="password")
+            new_pw2 = st.text_input("Confirm password", type="password")
+            if st.button("Update password", use_container_width=True):
+                if not new_pw:
+                    st.error("Please enter a new password.")
+                elif new_pw != new_pw2:
+                    st.error("Passwords do not match.")
+                else:
+                    try:
+                        sb.auth.verify_otp({"token_hash": reset_token, "type": "recovery"})
+                        sb.auth.update_user({"password": new_pw})
+                        st.session_state.pop("reset_token")
+                        st.session_state["pw_updated"] = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+            if st.button("Back to sign in", use_container_width=True):
+                st.session_state.pop("reset_token", None)
+                st.rerun()
+        st.stop()
+
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.title("💰 Budget Saver")
+
+        # ── Forgot password sub-form ──────────────────────────────
+        if st.session_state.get("show_reset"):
+            st.subheader("Reset password")
+            reset_email = st.text_input("Email")
+            if st.button("Send reset email", use_container_width=True):
+                if not reset_email:
+                    st.error("Please enter your email.")
+                else:
+                    try:
+                        httpx.post(
+                            f"{st.secrets['SUPABASE_URL']}/auth/v1/recover",
+                            json={"email": reset_email},
+                            headers={
+                                "apikey": st.secrets["SUPABASE_KEY"],
+                                "Content-Type": "application/json",
+                            },
+                        )
+                        st.success("Reset link sent — check your inbox.")
+                        st.session_state.pop("show_reset")
+                    except Exception as e:
+                        st.error(str(e))
+            if st.button("Back to sign in", use_container_width=True):
+                st.session_state.pop("show_reset")
+                st.rerun()
+            st.stop()
+
+        # ── Normal login / signup ─────────────────────────────────
+        if st.session_state.pop("pw_updated", False):
+            st.success("Password updated! Sign in with your new password.")
+
+        mode = st.radio("", ["Sign in", "Sign up"], horizontal=True, label_visibility="collapsed")
+        email    = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+
+        if st.button("Continue", use_container_width=True):
+            if not email or not password:
+                st.error("Please enter email and password.")
+            else:
+                try:
+                    if mode == "Sign in":
+                        resp = sb.auth.sign_in_with_password({"email": email, "password": password})
+                    else:
+                        resp = sb.auth.sign_up({"email": email, "password": password})
+                    st.session_state.user_id    = resp.user.id
+                    st.session_state.user_email = resp.user.email
+                    st.rerun()
+                except Exception as e:
+                    st.error(str(e))
+
+        if mode == "Sign in":
+            st.markdown("")
+            if st.button("Forgot password?", use_container_width=True):
+                st.session_state.show_reset = True
+                st.rerun()
+    st.stop()
+
+
+_handle_auth()
+
+
+# ── Load models once per user ─────────────────────────────────────
 @st.cache_resource
-def load_models():
-    model     = DataModel(DATA_FILE,         list(BUDGET_CATEGORIES))
-    exp_model = DataModel(EXPENSE_DATA_FILE, list(EXPENSE_CATEGORIES))
+def load_models(user_id: str):
+    model     = DataModel(DATA_FILE,         list(BUDGET_CATEGORIES), user_id=user_id)
+    exp_model = DataModel(EXPENSE_DATA_FILE, list(EXPENSE_CATEGORIES), user_id=user_id)
     return model, exp_model
 
-model, exp_model = load_models()
+model, exp_model = load_models(st.session_state.user_id)
 
 # Sync currency helpers with whatever is stored in the model
 set_currency_state(
@@ -61,6 +171,13 @@ def _get_net_transferred():
 
 # ── Sidebar: settings ─────────────────────────────────────────────
 with st.sidebar:
+    st.caption(f"Signed in as {st.session_state.get('user_email', '')}")
+    if st.button("Logout", key="btn_logout"):
+        st.session_state.pop("user_id", None)
+        st.session_state.pop("user_email", None)
+        st.rerun()
+
+    st.divider()
     st.title("⚙️ Settings")
 
     selected_currency = st.selectbox(
@@ -184,7 +301,7 @@ def _note_input(model_ref, category, prefix):
     else:
         note = "" if sel == "" else sel
 
-    # Remove-preset management (shown only when presets exist)
+    # Remove-preset management UI
     if presets:
         with st.expander("🗑️ Remove saved notes"):
             for p in list(presets):
@@ -209,7 +326,7 @@ def _tx_table(transactions, model_ref, category, prefix, limit=100):
     for col, lbl in zip(hdr, ["Date", "Type", "Amount", "Note", "", ""]):
         col.caption(lbl)
 
-    # ~5 rows visible; scroll to see the rest
+  
     with st.container(height=255, border=False):
       for t in items:
         dt  = datetime.fromisoformat(t.timestamp)
@@ -637,7 +754,7 @@ with expenses_tab:
 
             st.divider()
 
-            # Clear category (keep category, wipe transactions)
+    
             if st.checkbox(
                 f"Clear all transactions in '{category}'",
                 key=f"confirm_eclear_{category}",
@@ -649,7 +766,7 @@ with expenses_tab:
                     exp_model.clear_category(category)
                     st.rerun()
 
-            # Delete category entirely
+  
             if st.checkbox(
                 f"I want to delete '{category}' and all its data",
                 key=f"confirm_del_expenses_{category}",
