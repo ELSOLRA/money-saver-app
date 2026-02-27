@@ -1,2 +1,6 @@
 streamlit>=1.32.0
 openpyxl>=3.1.0
+supabase==2.7.4
+gotrue==2.7.0
+httpx>=0.24,<0.28
+websockets>=13,<16

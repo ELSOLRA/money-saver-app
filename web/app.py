@@ -254,9 +254,7 @@ def _tx_table(transactions, model_ref, category, prefix, limit=100):
                     converted = convert_currency(new_amt, new_cur, model_ref.currency)
                     orig_c = new_cur if new_cur != model_ref.currency else None
                     orig_a = new_amt if new_cur != model_ref.currency else None
-                    model_ref.update_transaction_amount(t, converted, orig_a, orig_c)
-                    t.note = new_note or None
-                    model_ref.save_data()
+                    model_ref.update_transaction_amount(t, converted, orig_a, orig_c, note=new_note)
                     st.session_state.pop(f"editing_{uid}", None)
                     st.rerun()
                 if ec5.button("✖", key=f"ecancel_{uid}"):

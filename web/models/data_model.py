@@ -1,86 +1,118 @@
-
 import json
-import base64
-from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
+
+import streamlit as st
+from supabase import create_client, Client
+
 from utils.config import DEFAULT_CURRENCY, EXCHANGE_RATES as _DEFAULT_RATES
+
+
+def _get_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
 
 @dataclass
 class Transaction:
     """Represents a single budget transaction."""
     amount: float
-    action: str  # 'add' or 'spend'
+    action: str          # 'add' or 'spend'
     category: str
     timestamp: str
     note: Optional[str] = None
-    original_currency: Optional[str] = None   
-    original_amount: Optional[float] = None   #
+    original_currency: Optional[str] = None
+    original_amount: Optional[float] = None
+    id: Optional[str] = None   # Supabase row UUID
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {
+            'amount': self.amount,
+            'action': self.action,
+            'category': self.category,
+            'timestamp': self.timestamp,
+            'note': self.note,
+            'original_currency': self.original_currency,
+            'original_amount': self.original_amount,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Transaction':
-        return cls(**data)
+        return cls(
+            amount=data['amount'],
+            action=data['action'],
+            category=data['category'],
+            timestamp=data['timestamp'],
+            note=data.get('note'),
+            original_currency=data.get('original_currency'),
+            original_amount=data.get('original_amount'),
+            id=data.get('id'),
+        )
 
 
 class DataModel:
-    """
-    Manages all budget data operations.
-    """
+    """Manages all budget data — backed by Supabase."""
 
     def __init__(self, data_file: str = 'savings_data.json', categories: List[str] = None):
-        self.data_file = Path(data_file)
+        self.model_type = 'expenses' if 'expense' in str(data_file).lower() else 'savings'
+        self.data_file = data_file  
+
         self.transactions: List[Transaction] = []
-        self.categories = categories or []
+        self.categories: List[str] = list(categories or [])
         self.currency: str = DEFAULT_CURRENCY
         self.exchange_rates: dict = dict(_DEFAULT_RATES)
         self.preset_notes: Dict[str, List[str]] = {}
+
+        self._sb = _get_supabase()
         self._load_data()
 
+    # ── Internal helpers ──────────────────────────────────────────────
+
     def _load_data(self) -> None:
-        """Load data from Base64-encoded JSON file if it exists."""
-        if self.data_file.exists():
-            try:
-                raw = self.data_file.read_bytes()
-                try:
-                    decoded = base64.b64decode(raw)
-                    json_str = decoded.decode('utf-8')
-                except Exception:
-                    # Fallback: file is still plain JSON 
-                    json_str = raw.decode('utf-8')
-                data = json.loads(json_str)
-                self.transactions = [
-                    Transaction.from_dict(t) for t in data.get('transactions', [])
-                ]
-                # Load saved categories and merge with defaults
-                saved_categories = data.get('categories', [])
-                for cat in saved_categories:
-                    if cat not in self.categories:
-                        self.categories.append(cat)
-                self.currency = data.get('currency', DEFAULT_CURRENCY)
-                self.exchange_rates = data.get('exchange_rates', dict(_DEFAULT_RATES))
-                self.preset_notes = data.get('preset_notes', {})
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"Error loading data: {e}. Starting with empty data.")
-                self.transactions = []
+        """Load settings and transactions from Supabase."""
+        # Settings row
+        res = (
+            self._sb.table('settings')
+            .select('*')
+            .eq('model_type', self.model_type)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+            self.currency       = row.get('currency') or DEFAULT_CURRENCY
+            self.exchange_rates = row.get('exchange_rates') or dict(_DEFAULT_RATES)
+            self.preset_notes   = row.get('preset_notes') or {}
+            for cat in (row.get('categories') or []):
+                if cat not in self.categories:
+                    self.categories.append(cat)
+
+        # Transactions
+        res = (
+            self._sb.table('transactions')
+            .select('*')
+            .eq('model_type', self.model_type)
+            .order('timestamp')
+            .execute()
+        )
+        self.transactions = [Transaction.from_dict(r) for r in res.data]
+
+    def _save_settings(self) -> None:
+        """Persist settings (currency, categories, exchange rates, preset notes)."""
+        self._sb.table('settings').upsert({
+            'model_type':     self.model_type,
+            'currency':       self.currency,
+            'exchange_rates': self.exchange_rates,
+            'categories':     self.categories,
+            'preset_notes':   self.preset_notes,
+        }).execute()
 
     def save_data(self) -> None:
-        """Save all data to JSON file encoded as Base64."""
-        data = {
-            'transactions': [t.to_dict() for t in self.transactions],
-            'categories': self.categories,
-            'currency': self.currency,
-            'exchange_rates': self.exchange_rates,
-            'preset_notes': self.preset_notes,
-            'last_updated': datetime.now().isoformat()
-        }
-        json_str = json.dumps(data, indent=2, ensure_ascii=False)
-        encoded = base64.b64encode(json_str.encode('utf-8'))
-        self.data_file.write_bytes(encoded)
+        """Save settings. (Transactions are written individually on each operation.)"""
+        self._save_settings()
+
+    # ── Transactions ──────────────────────────────────────────────────
 
     def add_transaction(
         self,
@@ -90,62 +122,165 @@ class DataModel:
         note: Optional[str] = None,
         original_currency: Optional[str] = None,
         original_amount: Optional[float] = None,
-    ) -> Transaction:
-        """Add a new transaction and save to file."""
-        transaction = Transaction(
-            amount=amount,
-            action=action,
-            category=category,
-            timestamp=datetime.now().isoformat(),
-            note=note,
-            original_currency=original_currency,
-            original_amount=original_amount,
+    ) -> 'Transaction':
+        row = {
+            'model_type':        self.model_type,
+            'amount':            amount,
+            'action':            action,
+            'category':          category,
+            'timestamp':         datetime.now().isoformat(),
+            'note':              note,
+            'original_currency': original_currency,
+            'original_amount':   original_amount,
+        }
+        res = self._sb.table('transactions').insert(row).execute()
+        t = Transaction.from_dict(res.data[0])
+        self.transactions.append(t)
+        return t
+
+    def delete_transaction_by_ref(self, transaction: 'Transaction') -> bool:
+        if transaction.id:
+            self._sb.table('transactions').delete().eq('id', transaction.id).execute()
+        try:
+            self.transactions.remove(transaction)
+            return True
+        except ValueError:
+            return False
+
+    def update_transaction_amount(
+        self,
+        transaction: 'Transaction',
+        new_amount: float,
+        new_original_amount: Optional[float] = None,
+        new_original_currency: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        transaction.amount            = new_amount
+        transaction.original_amount   = new_original_amount
+        transaction.original_currency = new_original_currency
+        if note is not None:
+            transaction.note = note or None
+
+        if transaction.id:
+            self._sb.table('transactions').update({
+                'amount':            new_amount,
+                'original_amount':   new_original_amount,
+                'original_currency': new_original_currency,
+                'note':              transaction.note,
+            }).eq('id', transaction.id).execute()
+
+    def clear_all_data(self) -> None:
+        self._sb.table('transactions').delete().eq('model_type', self.model_type).execute()
+        self.transactions = []
+
+    def clear_category(self, category: str) -> None:
+        (
+            self._sb.table('transactions').delete()
+            .eq('model_type', self.model_type)
+            .eq('category', category)
+            .execute()
         )
-        self.transactions.append(transaction)
-        self.save_data()
-        return transaction
+        self.transactions = [t for t in self.transactions if t.category != category]
 
-    def add_to_budget(self, amount: float, category: str,
-                      original_currency: Optional[str] = None,
-                      original_amount: Optional[float] = None) -> Transaction:
-        """Add money to a category budget."""
-        return self.add_transaction(amount, 'add', category,
-                                    original_currency=original_currency,
-                                    original_amount=original_amount)
+    def clear_category_tagged(self, category: str, tag: str) -> None:
+        (
+            self._sb.table('transactions').delete()
+            .eq('model_type', self.model_type)
+            .eq('category', category)
+            .eq('note', tag)
+            .execute()
+        )
+        self.transactions = [
+            t for t in self.transactions
+            if not (t.category == category and t.note == tag)
+        ]
 
-    def spend_from_budget(self, amount: float, category: str,
-                          original_currency: Optional[str] = None,
-                          original_amount: Optional[float] = None) -> Transaction:
-        """Spend money from a category budget."""
-        return self.add_transaction(amount, 'spend', category,
-                                    original_currency=original_currency,
-                                    original_amount=original_amount)
+    def convert_all_amounts(self, from_code: str, to_code: str) -> None:
+        from utils.helpers import convert_currency
+        for t in self.transactions:
+            new_amt  = convert_currency(t.amount, from_code, to_code)
+            t.amount = new_amt
+            if t.id:
+                self._sb.table('transactions').update({'amount': new_amt}).eq('id', t.id).execute()
+
+    def recalculate_foreign_amounts(self) -> None:
+        from utils.helpers import convert_currency
+        for t in self.transactions:
+            if t.original_currency and t.original_amount is not None:
+                new_amt  = convert_currency(t.original_amount, t.original_currency, self.currency)
+                t.amount = new_amt
+                if t.id:
+                    self._sb.table('transactions').update({'amount': new_amt}).eq('id', t.id).execute()
+
+    # ── Categories & presets ─────────────────────────────────────────
+
+    def add_category(self, category_name: str) -> bool:
+        if category_name in self.categories:
+            return False
+        self.categories.append(category_name)
+        self._save_settings()
+        return True
+
+    def delete_category(self, category: str) -> None:
+        (
+            self._sb.table('transactions').delete()
+            .eq('model_type', self.model_type)
+            .eq('category', category)
+            .execute()
+        )
+        self.transactions = [t for t in self.transactions if t.category != category]
+        if category in self.categories:
+            self.categories.remove(category)
+        self.preset_notes.pop(category, None)
+        self._save_settings()
+
+    def get_preset_notes(self, category: str) -> List[str]:
+        return list(self.preset_notes.get(category, []))
+
+    def add_preset_note(self, category: str, note: str) -> bool:
+        notes = self.preset_notes.setdefault(category, [])
+        if note in notes:
+            return False
+        notes.append(note)
+        self._save_settings()
+        return True
+
+    def remove_preset_note(self, category: str, note: str) -> bool:
+        notes = self.preset_notes.get(category, [])
+        if note in notes:
+            notes.remove(note)
+            self._save_settings()
+            return True
+        return False
+
+    # ── Currency / rates ─────────────────────────────────────────────
+
+    def set_currency(self, currency_code: str) -> None:
+        self.currency = currency_code
+        self._save_settings()
+
+    def set_exchange_rates(self, rates: dict) -> None:
+        self.exchange_rates = dict(rates)
+        self._save_settings()
+
+    # ── Read-only computed helpers ────────────────────────────────────
 
     def get_category_balance(self, category: str) -> float:
-        """Get current balance for a specific category."""
         total = 0
         for t in self.transactions:
             if t.category == category:
-                if t.action == 'add':
-                    total += t.amount
-                else:  
-                    total -= t.amount
+                total += t.amount if t.action == 'add' else -t.amount
         return total
 
     def get_total_budget(self, exclude_categories=None) -> float:
-        """Get total budget across all categories."""
         total = 0
         for t in self.transactions:
             if exclude_categories and t.category in exclude_categories:
                 continue
-            if t.action == 'add':
-                total += t.amount
-            else:
-                total -= t.amount
+            total += t.amount if t.action == 'add' else -t.amount
         return total
 
     def get_total_added(self, exclude_categories=None) -> float:
-        """Get total money added across all categories."""
         return sum(
             t.amount for t in self.transactions
             if t.action == 'add'
@@ -153,7 +288,6 @@ class DataModel:
         )
 
     def get_total_spent(self, exclude_categories=None) -> float:
-        """Get total money spent across all categories."""
         return sum(
             t.amount for t in self.transactions
             if t.action == 'spend'
@@ -161,59 +295,9 @@ class DataModel:
         )
 
     def get_transactions_by_category(self, category: str) -> List[Transaction]:
-        """Get all transactions for a specific category."""
         return [t for t in self.transactions if t.category == category]
 
-    def clear_all_data(self) -> None:
-        """Clear all transactions."""
-        self.transactions = []
-        self.save_data()
-
-    def clear_category(self, category: str) -> None:
-        """Clear all transactions for a specific category."""
-        self.transactions = [t for t in self.transactions if t.category != category]
-        self.save_data()
-
-    def add_category(self, category_name: str) -> bool:
-        """Add a new category. Returns True if successful."""
-        if category_name in self.categories:
-            return False
-        self.categories.append(category_name)
-        self.save_data()
-        return True
-    
-    def delete_category(self, category: str) -> None:
-        """Delete a category and all its transactions."""
-        self.transactions = [t for t in self.transactions if t.category != category]
-        if category in self.categories:
-            self.categories.remove(category)
-        self.preset_notes.pop(category, None)
-        self.save_data()
-
-    def get_preset_notes(self, category: str) -> List[str]:
-        """Return the list of preset note strings for a category."""
-        return list(self.preset_notes.get(category, []))
-
-    def add_preset_note(self, category: str, note: str) -> bool:
-        """Add a preset note to a category. Returns False if already exists."""
-        notes = self.preset_notes.setdefault(category, [])
-        if note in notes:
-            return False
-        notes.append(note)
-        self.save_data()
-        return True
-
-    def remove_preset_note(self, category: str, note: str) -> bool:
-        """Remove a preset note from a category. Returns False if not found."""
-        notes = self.preset_notes.get(category, [])
-        if note in notes:
-            notes.remove(note)
-            self.save_data()
-            return True
-        return False
-
     def get_foreign_currency_totals(self) -> Dict[str, Dict[str, float]]:
-        """Get added/spent totals for each non-main currency used as input."""
         totals: Dict[str, Dict[str, float]] = {}
         for t in self.transactions:
             if t.original_currency and t.original_amount is not None:
@@ -226,67 +310,7 @@ class DataModel:
                     totals[curr]['spent'] += t.original_amount
         return totals
 
-    def convert_all_amounts(self, from_code: str, to_code: str) -> None:
-        """Re-convert every stored amount when the main currency changes."""
-        from utils.helpers import convert_currency
-        for t in self.transactions:
-            t.amount = convert_currency(t.amount, from_code, to_code)
-        self.save_data()
-
-    def recalculate_foreign_amounts(self) -> None:
-        """Recompute main-currency amounts for foreign-input transactions using active rates."""
-        from utils.helpers import convert_currency
-        for t in self.transactions:
-            if t.original_currency and t.original_amount is not None:
-                t.amount = convert_currency(t.original_amount, t.original_currency, self.currency)
-        self.save_data()
-
-    def set_exchange_rates(self, rates: dict) -> None:
-        """Persist custom exchange rates."""
-        self.exchange_rates = dict(rates)
-        self.save_data()
-
-    def set_currency(self, currency_code: str) -> None:
-        """Set the active currency and persist it."""
-        self.currency = currency_code
-        self.save_data()
-
-    def delete_transaction_by_ref(self, transaction: 'Transaction') -> bool:
-        """Delete a specific transaction by object reference. Returns True if found."""
-        try:
-            self.transactions.remove(transaction)
-            self.save_data()
-            return True
-        except ValueError:
-            return False
-
-    def clear_category_tagged(self, category: str, tag: str) -> None:
-        """Remove only transactions in category whose note matches tag."""
-        self.transactions = [
-            t for t in self.transactions
-            if not (t.category == category and t.note == tag)
-        ]
-        self.save_data()
-
-    def update_transaction_amount(
-        self,
-        transaction: 'Transaction',
-        new_amount: float,
-        new_original_amount: Optional[float] = None,
-        new_original_currency: Optional[str] = None,
-    ) -> None:
-        """Update the amount fields of an existing transaction in-place."""
-        transaction.amount = new_amount
-        transaction.original_amount = new_original_amount
-        transaction.original_currency = new_original_currency
-        self.save_data()
-
     def get_distributable_balance(self) -> float:
-        """
-        Money received via transfers from expenses minus money already
-        allocated to actual savings categories.
-        distributable = sum(DISTRIBUTABLE_CATEGORY adds) - sum(all other adds)
-        """
         from utils.config import DISTRIBUTABLE_CATEGORY
         transferred = sum(
             t.amount for t in self.transactions
@@ -301,3 +325,15 @@ class DataModel:
             if t.category != DISTRIBUTABLE_CATEGORY and t.action == 'add'
         )
         return transferred - returned - allocated
+
+    # ── Legacy helpers ────────────────────────────────────────────────
+
+    def add_to_budget(self, amount, category, original_currency=None, original_amount=None):
+        return self.add_transaction(amount, 'add', category,
+                                    original_currency=original_currency,
+                                    original_amount=original_amount)
+
+    def spend_from_budget(self, amount, category, original_currency=None, original_amount=None):
+        return self.add_transaction(amount, 'spend', category,
+                                    original_currency=original_currency,
+                                    original_amount=original_amount)

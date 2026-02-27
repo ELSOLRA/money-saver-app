@@ -12,3 +12,5 @@ build/
 dist/
 *.spec
 *.exe
+
+web/.streamlit/secrets.toml
